@@ -1,0 +1,27 @@
+# Build artifacts / compiled binaries
+build/
+*.o
+*.out
+
+# Compiled executables (no-extension binaries from acpp)
+01_usm
+02_window
+03_dft
+04_fft
+stageA
+stageB
+stageC
+dedisp
+dmsearch
+vadd
+
+# Large data & generated outputs
+*.sigmf-data
+*.sigmf-meta
+*.bin
+*.png
+*:Zone.Identifier
+
+# Python
+__pycache__/
+*.pyc
