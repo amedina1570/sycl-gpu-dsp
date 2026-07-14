@@ -5,6 +5,7 @@
 #include <vector>
 #include <cmath>
 #include <cstdio>
+#include <exception>
 
 #define CUFFT_CHECK(x) do { cufftResult r=(x); \
   if(r!=CUFFT_SUCCESS){printf("cuFFT error %d at line %d\n",r,__LINE__);return 1;} }while(0)
@@ -15,8 +16,22 @@ int main() {
   constexpr float PI    = 3.14159265358979323846f;
   constexpr int   K0    = 100;
 
-  sycl::queue q{sycl::property::queue::in_order{}};
+  sycl::queue q{
+    [](sycl::exception_list exceptions) {
+      for (const std::exception_ptr& e : exceptions) {
+        try {
+          std::rethrow_exception(e);
+        } catch (const sycl::exception& ex) {
+          std::printf("asynchronous SYCL exception: %s\n", ex.what());
+        }
+      }
+    },
+    sycl::property::queue::in_order{}};
   printf("Device: %s\n", q.get_device().get_info<sycl::info::device::name>().c_str());
+  if (q.get_device().get_backend() != sycl::backend::cuda) {
+    printf("cuFFT interop requires a SYCL queue backed by the CUDA backend\n");
+    return 1;
+  }
 
   const size_t total = size_t(NFFT) * BATCH;
   cufftComplex* d_data = sycl::malloc_device<cufftComplex>(total, q);
@@ -35,8 +50,15 @@ int main() {
   q.submit([&](sycl::handler& cgh) {
     cgh.AdaptiveCpp_enqueue_custom_operation([=](sycl::interop_handle& ih) {
       auto stream = ih.get_native_queue<sycl::backend::cuda>();
-      cufftSetStream(plan, stream);
-      cufftExecC2C(plan, d_data, d_data, CUFFT_FORWARD);
+      cufftResult r = cufftSetStream(plan, stream);
+      if (r != CUFFT_SUCCESS) {
+        std::printf("cuFFT error %d in cufftSetStream\n", r);
+        return;
+      }
+      r = cufftExecC2C(plan, d_data, d_data, CUFFT_FORWARD);
+      if (r != CUFFT_SUCCESS) {
+        std::printf("cuFFT error %d in cufftExecC2C\n", r);
+      }
     });
   });
   q.wait();

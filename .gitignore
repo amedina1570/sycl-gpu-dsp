@@ -20,8 +20,12 @@ vadd
 *.sigmf-meta
 *.bin
 *.png
+*_spectrogram.json
 *:Zone.Identifier
 
 # Python
 __pycache__/
 *.pyc
+
+# Local notes, not for the repo
+knowledge.md

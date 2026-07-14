@@ -1,4 +1,5 @@
 // Stage A: load ci16_le SigMF IQ, convert to complex float, report stats.
+#include "dsp_math.hpp"
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -26,8 +27,8 @@ int main(int argc, char** argv) {
   std::vector<float> re(nsamp), im(nsamp);
   double sumpow = 0.0, maxpow = 0.0; size_t maxidx = 0;
   for (size_t n = 0; n < nsamp; ++n) {
-    float i = raw[2*n]   / 32768.0f;
-    float q = raw[2*n+1] / 32768.0f;
+    float i = dsp::decode_i16(raw[2*n]);
+    float q = dsp::decode_i16(raw[2*n+1]);
     re[n] = i; im[n] = q;
     double p = double(i)*i + double(q)*q;
     sumpow += p;

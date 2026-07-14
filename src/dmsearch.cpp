@@ -1,12 +1,12 @@
 // DM search: sweep DM, dedisperse, measure pulse SNR, find best DM.
 // Input: crab_spectrogram.bin (float32 dB, nframes x NFFT).
 // Output: dm_snr.bin (pairs of float32: DM, SNR) + best profile.
+#include "dsp_math.hpp"
+#include "sycl_dsp_math.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>
-#include <cmath>
 #include <cstdio>
 #include <fstream>
-#include <algorithm>
 
 int main(int argc, char** argv){
   const char* inpath = (argc>1)? argv[1] : "/home/user/crab_spectrogram.bin";
@@ -37,21 +37,15 @@ int main(int argc, char** argv){
   int*   d_shift= sycl::malloc_device<int>(NFFT, q);
   q.memcpy(d_spec, spec.data(), nframes*NFFT*sizeof(float));
   q.parallel_for(sycl::range<1>{nframes*NFFT}, [=](sycl::id<1> i){
-    d_lin[i[0]] = sycl::pow(10.0f, d_spec[i[0]]*0.1f);
+    d_lin[i[0]] = dsp::power_from_db(d_spec[i[0]]);
   }).wait();
 
-  double f_ref=(FC+(NFFT/2)*(double)FS/NFFT);
-  std::vector<int> shift(NFFT);
   std::vector<float> curve(nDM*2), bestprof(nframes);
   double best_snr=-1; double best_dm=0; std::vector<float> best(nframes);
 
   for(int t=0;t<nDM;t++){
     double DM=DM_MIN + t*DM_STEP;
-    for(int k=0;k<NFFT;k++){
-      double fk=(FC+(k-NFFT/2)*(double)FS/NFFT), fkG=fk/1e9, frG=f_ref/1e9;
-      double d=4.148808e-3*DM*(1.0/(fkG*fkG)-1.0/(frG*frG));
-      shift[k]=(int)lround(d/t_frame);
-    }
+    std::vector<int> shift = dsp::compute_dm_shifts(DM, FC, FS, NFFT, t_frame);
     q.memcpy(d_shift, shift.data(), NFFT*sizeof(int));
     q.memset(d_prof,0,nframes*sizeof(float));
     q.memset(d_cnt,0,nframes*sizeof(int)).wait();
@@ -77,16 +71,10 @@ int main(int argc, char** argv){
     std::vector<float> full;
     for(size_t i=0;i<nframes;i++) if(cnt[i]==NFFT) full.push_back(prof[i]);
     if(full.size()<10) continue;
-    std::vector<float> s=full; std::sort(s.begin(),s.end());
-    float med=s[s.size()/2];
-    double mean=0; for(float v:full) mean+=v; mean/=full.size();
-    double var=0; for(float v:full) var+=(v-mean)*(v-mean); var/=full.size();
-    float sd=std::sqrt((float)var);
-    float peak=*std::max_element(full.begin(),full.end());
-    float snr = sd>0 ? (peak-med)/sd : 0.0f;
+    dsp::SnrStats stats = dsp::compute_snr(full);
 
-    curve[2*t]=(float)DM; curve[2*t+1]=snr;
-    if(snr>best_snr){ best_snr=snr; best_dm=DM; best=prof; }
+    curve[2*t]=(float)DM; curve[2*t+1]=stats.snr;
+    if(stats.snr>best_snr){ best_snr=stats.snr; best_dm=DM; best=prof; }
   }
 
   std::ofstream(outcurve,std::ios::binary)

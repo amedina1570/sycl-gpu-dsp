@@ -1,10 +1,11 @@
 // Incoherent dedispersion of the Crab spectrogram on GPU (SYCL).
 // Input: crab_spectrogram.bin (float32, nframes x NFFT, dB).
 // Output: dedispersed spectrogram + 1D pulse profile (sum over freq).
+#include "dsp_math.hpp"
+#include "sycl_dsp_math.hpp"
 #include <sycl/sycl.hpp>
 #include <cstdint>
 #include <vector>
-#include <cmath>
 #include <cstdio>
 #include <fstream>
 
@@ -31,14 +32,7 @@ int main(int argc, char** argv) {
   f.read(reinterpret_cast<char*>(spec.data()), bytes);
 
   // Precompute per-bin frame shifts on host (small, NFFT entries)
-  double f_ref = (FC + (NFFT/2)*FS/NFFT);    // top of band, Hz
-  std::vector<int> shift(NFFT);
-  for(int k=0;k<NFFT;k++){
-    double fk = (FC + (k - NFFT/2)*(double)FS/NFFT);   // Hz (fftshifted axis)
-    double fkG=fk/1e9, frG=f_ref/1e9;
-    double d = 4.148808e-3*DM*(1.0/(fkG*fkG) - 1.0/(frG*frG)); // s
-    shift[k] = (int)lround(d / t_frame);
-  }
+  std::vector<int> shift = dsp::compute_dm_shifts(DM, FC, FS, NFFT, t_frame);
 
   float* d_spec  = sycl::malloc_device<float>(nframes*NFFT, q);
   float* d_dedis = sycl::malloc_device<float>(nframes*NFFT, q);
@@ -63,7 +57,7 @@ int main(int argc, char** argv) {
     size_t fr = id[0]; float acc = 0.0f;
     for(int k=0;k<NFFT;k++){
       float db = d_dedis[fr*NFFT + k];
-      acc += sycl::pow(10.0f, db*0.1f);
+      acc += dsp::power_from_db(db);
     }
     d_prof[fr] = acc;
   });

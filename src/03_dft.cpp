@@ -1,3 +1,4 @@
+#include "dft_lib.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>
 #include <cmath>
@@ -17,30 +18,8 @@ int main() {
   for (size_t n = 0; n < N; ++n)
     h_x[n] = std::cos(2.0f * PI * K0 * n / N);
 
-  std::vector<float> h_mag(N, 0.0f);
-
-  float* d_x   = sycl::malloc_device<float>(N, q);
-  float* d_mag = sycl::malloc_device<float>(N, q);
-  q.memcpy(d_x, h_x.data(), N * sizeof(float));
-
-  // One work-item per output bin k. Each sums over all n:
-  //   X[k] = sum_n x[n] * exp(-i 2*pi*k*n/N)
-  //   mag[k] = sqrt(Re^2 + Im^2)
-  q.parallel_for(sycl::range<1>{N}, [=](sycl::id<1> idx) {
-    size_t k = idx[0];
-    float re = 0.0f, im = 0.0f;
-    for (size_t n = 0; n < N; ++n) {
-      float ang = -2.0f * PI * k * n / N;
-      float s = sycl::sin(ang);
-      float c = sycl::cos(ang);
-      re += d_x[n] * c;
-      im += d_x[n] * s;
-    }
-    d_mag[k] = sycl::sqrt(re*re + im*im);
-  });
-
-  q.memcpy(h_mag.data(), d_mag, N * sizeof(float));
-  q.wait();
+  // X[k] = sum_n x[n] * exp(-i 2*pi*k*n/N); mag[k] = sqrt(Re^2 + Im^2)
+  std::vector<float> h_mag = dsp::naive_dft_mag(q, h_x);
 
   // Find the peak bin
   size_t peak = 0;
@@ -55,7 +34,5 @@ int main() {
   bool ok = (peak == (size_t)K0) || (peak == N - (size_t)K0);
   std::cout << (ok ? "OK\n" : "FAIL\n");
 
-  sycl::free(d_x, q);
-  sycl::free(d_mag, q);
   return 0;
 }
