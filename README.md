@@ -66,6 +66,22 @@ auto-detection as `iq2spectrogram`.
       --offset 0 --nsamp 4096
     # -> writes <stem>_snapshot.png
 
+### RADAR-like pulse trains
+
+`view/view_radar_pulses.py` extracts pulse parameters from a pulsed
+capture: it reads a segment (default 5ms, long enough to span several
+repetitions — override with `--duration` or `--nsamp`), detects pulses on
+the amplitude envelope (threshold at the midpoint between the noise floor
+and peak by default, `--threshold-frac` to tune), and reports pulse width,
+PRI, PRF, and duty cycle. It reuses `view_iq_snapshot`'s loader and FFT
+computation, swapping the raw I/Q time trace for an envelope plot with
+detected pulses shaded — a dense multi-pulse I/Q trace isn't readable, the
+envelope is what actually shows the pulse train.
+
+    python3 view/view_radar_pulses.py path/to/recording.sigmf-data \
+      --duration 5e-3
+    # -> writes <stem>_radar.png and <stem>_radar.json (extracted parameters)
+
 ## Worked example: Crab pulsar giant pulse
 
 `iq2spectrogram` itself is data-agnostic — point it at any SigMF IQ capture
@@ -123,6 +139,7 @@ Activate the toolchain:
 | `src/iq2spectrogram.cpp` | **Combined CLI**: any IQ file in -> spectrogram PNG out, streamed in bounded chunks (stages A+C+viewer) |
 | `view/view_spec.py`     | Matplotlib spectrogram viewer, memory-maps + downsamples large `.bin` output |
 | `view/view_iq_snapshot.py` | Quick-look plot (FFT spectrum, time-domain I/Q, I/Q scatter) for a short segment of any SigMF IQ file |
+| `view/view_radar_pulses.py` | Pulse-train analysis for RADAR-like signals: detects pulses on the envelope, extracts width/PRI/PRF/duty cycle |
 
 **SYCL fundamentals** (the building blocks the pipeline above is written from):
 

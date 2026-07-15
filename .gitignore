@@ -21,6 +21,7 @@ vadd
 *.bin
 *.png
 *_spectrogram.json
+*_radar.json
 *:Zone.Identifier
 
 # Python

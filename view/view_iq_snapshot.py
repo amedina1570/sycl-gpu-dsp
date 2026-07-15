@@ -74,6 +74,16 @@ def time_axis(nsamp, fs):
     return t, 'Time (s)'
 
 
+def compute_fft_db(iq, fs, fc):
+    """Hann-windowed, fftshifted dB magnitude spectrum. Returns (freqs_mhz, mag_db)."""
+    nsamp = iq.size
+    window = np.hanning(nsamp)
+    spec = np.fft.fftshift(np.fft.fft(iq * window))
+    mag_db = 20 * np.log10(np.abs(spec) + 1e-6)
+    freqs_mhz = (np.fft.fftshift(np.fft.fftfreq(nsamp, d=1 / fs)) + fc) / 1e6
+    return freqs_mhz, mag_db
+
+
 def main():
     ap = argparse.ArgumentParser(description='FFT + time-domain + I/Q quick-look plot for a SigMF IQ file.')
     ap.add_argument('input', help='SigMF IQ file (.sigmf-data or raw ci16_le/cf32_le)')
@@ -95,11 +105,7 @@ def main():
     iq = load_iq_segment(in_path, args.offset, args.nsamp, datatype)
     nsamp = iq.size
 
-    # --- FFT: Hann-windowed, fftshifted, dB magnitude ---
-    window = np.hanning(nsamp)
-    spec = np.fft.fftshift(np.fft.fft(iq * window))
-    mag_db = 20 * np.log10(np.abs(spec) + 1e-6)
-    freqs = (np.fft.fftshift(np.fft.fftfreq(nsamp, d=1 / fs)) + fc) / 1e6  # MHz
+    freqs, mag_db = compute_fft_db(iq, fs, fc)
 
     # --- Time domain: I and Q vs time ---
     t, t_label = time_axis(nsamp, fs)
