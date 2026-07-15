@@ -1,17 +1,23 @@
 # sycl-gpu-dsp
 
-GPU-accelerated digital signal processing in SYCL (AdaptiveCpp), targeting NVIDIA
-GPUs via the CUDA backend. Built as a hands-on progression from SYCL fundamentals
-to a complete spectral pipeline that recovers and removes interstellar dispersion
-from real radio-astronomy data.
+GPU-accelerated I/Q signal processing in SYCL (AdaptiveCpp), targeting NVIDIA
+GPUs via the CUDA backend. At its core is a general-purpose pipeline that
+turns any SigMF IQ recording (`ci16_le`/`cf32_le`, from a few MB to
+multi-hundred-GB captures — see "Large files" below) into a windowed,
+batched-FFT spectrogram, built up from SYCL fundamentals (USM, kernels,
+local memory) through a hand-written FFT and cuFFT interop. A worked
+radio-astronomy example — interstellar dedispersion of a Crab pulsar giant
+pulse — demonstrates the pipeline end-to-end on a real capture.
 
 ## Highlights
 
 - USM memory management, in-order queues, cooperative work-items, local memory
 - A hand-written radix-2 Cooley-Tukey FFT, validated against a naive DFT
-- A batched spectral pipeline using **cuFFT via SYCL interop**
-  (`AdaptiveCpp_enqueue_custom_operation` + `cufftSetStream`)
-- Incoherent dedispersion and a blind **dispersion-measure (DM) search**
+- A general **IQ file -> spectrogram** pipeline using **cuFFT via SYCL
+  interop** (`AdaptiveCpp_enqueue_custom_operation` + `cufftSetStream`),
+  streamed in bounded chunks so file size isn't limited by host/GPU memory
+- A worked example built on top: incoherent dedispersion and a blind
+  **dispersion-measure (DM) search**, applied to a pulsar recording
 
 ## Quick start: IQ file -> spectrogram image
 
@@ -48,10 +54,14 @@ slower. The viewer (`view/view_spec.py`) memory-maps the `.bin` and
 max-hold-decimates it down to the figure's pixel width instead of loading it
 whole, so plotting a huge spectrogram doesn't itself blow out RAM.
 
-## Demonstration: Crab pulsar giant pulse
+## Worked example: Crab pulsar giant pulse
 
-Using a 0.2 s, 20 Msps recording of a Crab pulsar giant pulse from the Dwingeloo
-Radio Telescope (SigMF, `ci16_le`, centered at 410 MHz), the pipeline:
+`iq2spectrogram` itself is data-agnostic — point it at any SigMF IQ capture
+(a Wi-Fi packet, a cellular downlink, whatever) and it produces a
+spectrogram. This example instead runs the full radio-astronomy chain on
+top of that pipeline: a 0.2 s, 20 Msps recording of a Crab pulsar giant
+pulse from the Dwingeloo Radio Telescope (SigMF, `ci16_le`, centered at 410
+MHz).
 
 1. Loads the raw complex int16 IQ
 2. Frames it (8192-pt FFT, 75% overlap), applies a Hann window, and runs a
@@ -91,19 +101,32 @@ Activate the toolchain:
 
 ## Programs
 
+**General-purpose IQ -> spectrogram pipeline** (works on any SigMF capture):
+
+| File | Description |
+|------|-------------|
+| `src/stageA_load.cpp`   | SigMF `ci16_le` loader + sanity stats |
+| `src/stageB_cufft.cpp`  | cuFFT interop skeleton (synthetic data) |
+| `src/stageC_spectrogram.cpp` | Fixed-size demo pipeline: IQ -> windowed batched cuFFT -> spectrogram |
+| `src/iq2spectrogram.cpp` | **Combined CLI**: any IQ file in -> spectrogram PNG out, streamed in bounded chunks (stages A+C+viewer) |
+| `view/view_spec.py`     | Matplotlib spectrogram viewer, memory-maps + downsamples large `.bin` output |
+
+**SYCL fundamentals** (the building blocks the pipeline above is written from):
+
 | File | Description |
 |------|-------------|
 | `src/01_usm.cpp`        | USM allocations, in-order queue, explicit transfers |
 | `src/02_window.cpp`     | Index-driven Hann window, device-side math |
 | `src/03_dft.cpp`        | Naive O(N^2) DFT — correctness baseline |
 | `src/04_fft.cpp`        | Single-workgroup radix-2 FFT (local memory + barriers) |
-| `src/stageA_load.cpp`   | SigMF `ci16_le` loader + sanity stats |
-| `src/stageB_cufft.cpp`  | cuFFT interop skeleton (synthetic data) |
-| `src/stageC_spectrogram.cpp` | Full pipeline: IQ -> windowed batched cuFFT -> spectrogram |
-| `src/iq2spectrogram.cpp` | **Combined CLI**: any IQ file in -> spectrogram PNG out (stages A+C+viewer) |
+
+**Worked example: pulsar dedispersion**, built on top of the general pipeline's spectrogram output:
+
+| File | Description |
+|------|-------------|
 | `src/dedisp.cpp`        | Incoherent dedispersion + pulse profile |
 | `src/dmsearch.cpp`      | Blind DM search maximizing pulse SNR |
-| `view/*.py`             | Matplotlib viewers for the outputs |
+| `view/view_dedisp.py`, `view/view_dmsearch.py` | Matplotlib viewers for the dedispersion/DM-search outputs |
 
 ## Compiling
 
