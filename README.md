@@ -54,6 +54,18 @@ slower. The viewer (`view/view_spec.py`) memory-maps the `.bin` and
 max-hold-decimates it down to the figure's pixel width instead of loading it
 whole, so plotting a huge spectrogram doesn't itself blow out RAM.
 
+### Quick-look: FFT + time domain + I/Q
+
+For sanity-checking a capture without running the full spectrogram
+pipeline, `view/view_iq_snapshot.py` reads a short segment straight from a
+raw SigMF IQ file and plots three panels: FFT spectrum, time-domain I/Q
+traces, and an I/Q (constellation) scatter. Same `.sigmf-meta`
+auto-detection as `iq2spectrogram`.
+
+    python3 view/view_iq_snapshot.py path/to/recording.sigmf-data \
+      --offset 0 --nsamp 4096
+    # -> writes <stem>_snapshot.png
+
 ## Worked example: Crab pulsar giant pulse
 
 `iq2spectrogram` itself is data-agnostic — point it at any SigMF IQ capture
@@ -110,6 +122,7 @@ Activate the toolchain:
 | `src/stageC_spectrogram.cpp` | Fixed-size demo pipeline: IQ -> windowed batched cuFFT -> spectrogram |
 | `src/iq2spectrogram.cpp` | **Combined CLI**: any IQ file in -> spectrogram PNG out, streamed in bounded chunks (stages A+C+viewer) |
 | `view/view_spec.py`     | Matplotlib spectrogram viewer, memory-maps + downsamples large `.bin` output |
+| `view/view_iq_snapshot.py` | Quick-look plot (FFT spectrum, time-domain I/Q, I/Q scatter) for a short segment of any SigMF IQ file |
 
 **SYCL fundamentals** (the building blocks the pipeline above is written from):
 
