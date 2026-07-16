@@ -7,8 +7,7 @@
 #include <fstream>
 
 int main(int argc, char** argv) {
-  const char* path = (argc > 1) ? argv[1]
-                    : "/home/user/13143544/crab-giantpulse.sigmf-data";
+  const char* path = (argc > 1) ? argv[1] : "crab-giantpulse.sigmf-data";
   const double fs = 20e6;      // from metadata
 
   std::ifstream f(path, std::ios::binary | std::ios::ate);

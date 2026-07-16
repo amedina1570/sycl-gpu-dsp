@@ -3,6 +3,7 @@
 // Output: dedispersed spectrogram + 1D pulse profile (sum over freq).
 #include "dsp_math.hpp"
 #include "sycl_dsp_math.hpp"
+#include "crab_example.hpp"
 #include <sycl/sycl.hpp>
 #include <cstdint>
 #include <vector>
@@ -10,13 +11,13 @@
 #include <fstream>
 
 int main(int argc, char** argv) {
-  const char* inpath  = (argc>1)? argv[1] : "/home/user/crab_spectrogram.bin";
-  const char* outspec = "/home/user/crab_dedispersed.bin";
-  const char* outprof = "/home/user/crab_profile.bin";
+  const char* inpath  = (argc>1)? argv[1] : "crab_spectrogram.bin";
+  const char* outspec = (argc>2)? argv[2] : "crab_dedispersed.bin";
+  const char* outprof = (argc>3)? argv[3] : "crab_profile.bin";
 
-  constexpr int NFFT = 8192, HOP = 2048;
-  const double FS = 20e6, FC = 410e6;
-  const double DM = 56.7;                    // pc/cm^3 (Crab); tune this
+  constexpr int NFFT = crab::NFFT, HOP = crab::HOP;
+  const double FS = crab::FS, FC = crab::FC;
+  const double DM = crab::DM;                 // pc/cm^3 (Crab); tune this
   const double t_frame = HOP / FS;
 
   sycl::queue q{sycl::property::queue::in_order{}};
@@ -47,7 +48,8 @@ int main(int argc, char** argv) {
   q.parallel_for(sycl::range<2>{nframes, (size_t)NFFT}, [=](sycl::id<2> id){
     size_t fr = id[0]; int k = (int)id[1];
     long src = (long)fr + d_shift[k];
-    float v = (src >= 0 && src < (long)nframes) ? d_spec[src*NFFT + k] : -120.0f;
+    float v = (src >= 0 && src < (long)nframes) ? d_spec[src*NFFT + k]
+                                                : dsp::SPECTROGRAM_FLOOR_DB;
     d_dedis[fr*NFFT + k] = v;
   });
 

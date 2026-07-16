@@ -2,6 +2,7 @@
 // programs. Deliberately free of any SYCL dependency so it can be included
 // (and unit tested) from plain host code such as stageA_load.cpp.
 #pragma once
+#include "dsp_constants.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -11,15 +12,15 @@ namespace dsp {
 
 // Normalize a signed 16-bit IQ sample pair to [-1, 1] floats.
 inline float decode_i16(int16_t raw) {
-  return raw / 32768.0f;
+  return raw / INT16_FULL_SCALE;
 }
 
 // Incoherent-dispersion delay (in frames) of frequency channel fk_hz
 // relative to reference frequency fref_hz, for a given dispersion measure.
-// Standard cold-plasma dispersion law: t(s) = 4.148808e-3 * DM * (f_GHz^-2).
+// Standard cold-plasma dispersion law: t(s) = K * DM * (f_GHz^-2), K = DM_DELAY_CONST_S.
 inline int dm_shift_samples(double dm, double fk_hz, double fref_hz, double t_frame) {
   double fk_ghz = fk_hz / 1e9, fref_ghz = fref_hz / 1e9;
-  double delay_s = 4.148808e-3 * dm * (1.0 / (fk_ghz * fk_ghz) - 1.0 / (fref_ghz * fref_ghz));
+  double delay_s = DM_DELAY_CONST_S * dm * (1.0 / (fk_ghz * fk_ghz) - 1.0 / (fref_ghz * fref_ghz));
   return (int)std::lround(delay_s / t_frame);
 }
 

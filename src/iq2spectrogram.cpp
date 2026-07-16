@@ -36,7 +36,7 @@ struct Args {
   std::string input;
   std::string out_prefix;
   std::string datatype;   // "ci16_le" or "cf32_le"
-  int    nfft = 8192;
+  int    nfft = dsp::DEFAULT_NFFT;
   int    hop  = 0;        // 0 => resolved to nfft/4 (75% overlap) after parsing
   double fs   = 0.0;
   double fc   = 0.0;
@@ -162,7 +162,7 @@ int main(int argc, char** argv) {
   std::ifstream f(a.input, std::ios::binary | std::ios::ate);
   if (!f) { printf("cannot open %s\n", a.input.c_str()); return 1; }
   std::streamsize bytes = f.tellg();
-  const size_t bytes_per_sample = (a.datatype == "ci16_le") ? 4 : 8; // 2x int16 or 2x float32
+  const size_t bytes_per_sample = cli::bytes_per_complex_sample(a.datatype);
 
   size_t nsamp = bytes / bytes_per_sample;
   if (nsamp < (size_t)NFFT) { printf("file too short for NFFT=%d\n", NFFT); return 1; }

@@ -35,8 +35,8 @@ if ! python3 -c "import numpy" >/dev/null 2>&1; then
 fi
 
 echo "--- building iq2spectrogram ---"
-acpp -O2 --acpp-targets=cuda:sm_75 "$ROOT/src/iq2spectrogram.cpp" -o "$BUILD/iq2spectrogram" \
-  -I/usr/local/cuda-12.6/include -L/usr/local/cuda-12.6/lib64 -lcufft -lcudart
+make -C "$ROOT" "$BUILD/iq2spectrogram"
+export LD_LIBRARY_PATH="$(make -C "$ROOT" -s print-cuda-path)/lib64:${LD_LIBRARY_PATH:-}"
 
 echo "--- generating synthetic ci16_le IQ file (~340 MB, tone at bin 137) ---"
 python3 -c "
