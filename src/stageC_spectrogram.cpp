@@ -1,6 +1,7 @@
 // Stage C: Crab-pulse SigMF -> windowed batched cuFFT -> spectrogram (float32 .bin)
 #include "sycl_dsp_math.hpp"
 #include "dsp_math.hpp"
+#include "crab_example.hpp"
 #include <sycl/sycl.hpp>
 #include <cufft.h>
 #include <cuda_runtime.h>
@@ -15,11 +16,10 @@
   if(r!=CUFFT_SUCCESS){printf("cuFFT error %d at line %d\n",r,__LINE__);return 1;} }while(0)
 
 int main(int argc, char** argv) {
-  const char* inpath  = (argc>1)? argv[1]
-                      : "/home/user/13143544/crab-giantpulse.sigmf-data";
-  const char* outpath = (argc>2)? argv[2] : "/home/user/crab_spectrogram.bin";
+  const char* inpath  = (argc>1)? argv[1] : "crab-giantpulse.sigmf-data";
+  const char* outpath = (argc>2)? argv[2] : "crab_spectrogram.bin";
 
-  constexpr int NFFT = 8192, HOP = 2048;
+  constexpr int NFFT = crab::NFFT, HOP = crab::HOP;
 
   sycl::queue q{
     [](sycl::exception_list exceptions) {

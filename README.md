@@ -26,8 +26,7 @@ Python viewer into one command: feed it a SigMF `ci16_le`/`cf32_le` IQ file,
 get a spectrogram PNG back. Sample rate, center frequency, and datatype are
 auto-read from a `.sigmf-meta` sidecar when present.
 
-    acpp -O2 --acpp-targets=cuda:sm_75 src/iq2spectrogram.cpp -o build/iq2spectrogram \
-      -I/usr/local/cuda-12.6/include -L/usr/local/cuda-12.6/lib64 -lcufft -lcudart
+    make iq2spectrogram        # auto-detects acpp, CUDA, and your GPU's arch
 
     ./build/iq2spectrogram path/to/recording.sigmf-data
     # -> writes <stem>_spectrogram.{bin,json,png} next to your working directory
@@ -103,6 +102,30 @@ Data: Crab giant pulse, Stichting CAMRAS / M. Fine & T. J. Dijkema,
 Zenodo DOI [10.5281/zenodo.13143544](https://doi.org/10.5281/zenodo.13143544),
 CC BY-SA 4.0. Not included in this repo — download separately.
 
+## Building
+
+Everything builds through a single auto-detecting Makefile, so the same
+commands work on any machine with the toolchain below — no paths to edit:
+
+    make                  # build every program into build/
+    make iq2spectrogram   # just the spectrogram pipeline
+    make host-tests       # tests that need no GPU/acpp
+    make print-config     # show the detected acpp / CUDA / GPU arch
+    make clean
+
+The Makefile auto-detects three machine-specific things and lets you override
+any of them (they must be consistent with each other — in particular
+`CUDA_PATH` has to be the CUDA release your AdaptiveCpp was built against):
+
+| Variable | Detected from | Override example |
+|----------|---------------|------------------|
+| `ACPP`      | `acpp` on `PATH`, else `$ACPP_HOME/bin` (default `~/adaptivecpp`) | `make ACPP=/opt/acpp/bin/acpp` |
+| `CUDA_PATH` | the `nvcc` on `PATH`, else `/usr/local/cuda` | `make CUDA_PATH=/usr/local/cuda-12.6` |
+| `SM_ARCH`   | `nvidia-smi` compute capability, else `sm_75` | `make SM_ARCH=sm_80` |
+
+`source env/acpp-env.sh` first if `acpp` isn't already on your `PATH` (it
+adds `$ACPP_HOME/bin`; override `ACPP_HOME` for a non-default install).
+
 ## Software requirements
 
 - **Linux** (native or WSL2) — the examples below assume Ubuntu 24.04
@@ -160,17 +183,16 @@ Activate the toolchain:
 
 ## Compiling
 
-Pure-SYCL programs (generic JIT target):
+Build any single program by name — the Makefile knows which need only the
+generic SYCL target (`01_usm`, …, `dedisp`, `dmsearch`) and which need the
+CUDA target plus a cuFFT link (`stageB_cufft`, `stageC_spectrogram`,
+`iq2spectrogram`):
 
-    acpp -O2 --acpp-targets=generic src/01_usm.cpp -o build/01_usm
+    make build/01_usm
+    make build/stageC_spectrogram
 
-cuFFT-interop programs (integrated CUDA target + cuFFT link):
-
-    acpp -O2 --acpp-targets=cuda:sm_75 src/stageC_spectrogram.cpp -o build/stageC \
-      -I/usr/local/cuda-12.6/include \
-      -L/usr/local/cuda-12.6/lib64 -lcufft -lcudart
-
-Adjust `sm_75` and the CUDA path for your GPU/toolkit.
+See `make print-config` for the flags it resolved, and the [Building](#building)
+section above for overriding the detected acpp / CUDA path / GPU arch.
 
 ## Testing
 

@@ -3,19 +3,20 @@
 // Output: dm_snr.bin (pairs of float32: DM, SNR) + best profile.
 #include "dsp_math.hpp"
 #include "sycl_dsp_math.hpp"
+#include "crab_example.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>
 #include <cstdio>
 #include <fstream>
 
 int main(int argc, char** argv){
-  const char* inpath = (argc>1)? argv[1] : "/home/user/crab_spectrogram.bin";
-  const char* outcurve = "/home/user/dm_snr.bin";
-  const char* outprof  = "/home/user/crab_bestprofile.bin";
+  const char* inpath = (argc>1)? argv[1] : "crab_spectrogram.bin";
+  const char* outcurve = (argc>2)? argv[2] : "dm_snr.bin";
+  const char* outprof  = (argc>3)? argv[3] : "crab_bestprofile.bin";
 
-  constexpr int NFFT=8192, HOP=2048;
-  const double FS=20e6, FC=410e6, t_frame=HOP/FS;
-  const double DM_MIN=40.0, DM_MAX=75.0, DM_STEP=0.25;
+  constexpr int NFFT=crab::NFFT, HOP=crab::HOP;
+  const double FS=crab::FS, FC=crab::FC, t_frame=HOP/FS;
+  const double DM_MIN=crab::DM_MIN, DM_MAX=crab::DM_MAX, DM_STEP=crab::DM_STEP;
   const int nDM=(int)((DM_MAX-DM_MIN)/DM_STEP)+1;
 
   sycl::queue q{sycl::property::queue::in_order{}};
@@ -70,7 +71,7 @@ int main(int argc, char** argv){
     // SNR = (peak - median) / std, using only frames with full channel coverage.
     std::vector<float> full;
     for(size_t i=0;i<nframes;i++) if(cnt[i]==NFFT) full.push_back(prof[i]);
-    if(full.size()<10) continue;
+    if(full.size()<(size_t)dsp::MIN_SNR_FRAMES) continue;
     dsp::SnrStats stats = dsp::compute_snr(full);
 
     curve[2*t]=(float)DM; curve[2*t+1]=stats.snr;
