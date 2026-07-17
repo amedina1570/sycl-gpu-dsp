@@ -23,12 +23,15 @@ int main(int argc, char** argv){
   printf("Device: %s\n", q.get_device().get_info<sycl::info::device::name>().c_str());
 
   std::ifstream f(inpath,std::ios::binary|std::ios::ate);
-  if(!f){printf("cannot open %s\n",inpath);return 1;}
+  if(!f){fprintf(stderr,"cannot open %s\n",inpath);return 1;}
   std::streamsize bytes=f.tellg(); f.seekg(0);
   size_t nframes=(bytes/sizeof(float))/NFFT;
   printf("nframes=%zu  DM trials=%d\n", nframes, nDM);
   std::vector<float> spec(nframes*NFFT);
-  f.read(reinterpret_cast<char*>(spec.data()), bytes);
+  // Read only whole frames: `bytes` may include a trailing partial frame
+  // (e.g. a truncated file) that the buffer above deliberately excludes.
+  f.read(reinterpret_cast<char*>(spec.data()), nframes*NFFT*sizeof(float));
+  if(!f){fprintf(stderr,"short read from %s\n",inpath);return 1;}
 
   // Pre-convert spectrogram dB -> linear power once, on device.
   float* d_spec = sycl::malloc_device<float>(nframes*NFFT, q);
@@ -41,11 +44,14 @@ int main(int argc, char** argv){
     d_lin[i[0]] = dsp::power_from_db(d_spec[i[0]]);
   }).wait();
 
-  std::vector<float> curve(nDM*2), bestprof(nframes);
+  std::vector<float> curve(nDM*2);
   double best_snr=-1; double best_dm=0; std::vector<float> best(nframes);
 
   for(int t=0;t<nDM;t++){
     double DM=DM_MIN + t*DM_STEP;
+    // Record the trial DM up front so skipped trials (too few fully-covered
+    // frames) still map to their DM in the output curve instead of (0, 0).
+    curve[2*t]=(float)DM; curve[2*t+1]=0.0f;
     std::vector<int> shift = dsp::compute_dm_shifts(DM, FC, FS, NFFT, t_frame);
     q.memcpy(d_shift, shift.data(), NFFT*sizeof(int));
     q.memset(d_prof,0,nframes*sizeof(float));
@@ -74,7 +80,7 @@ int main(int argc, char** argv){
     if(full.size()<(size_t)dsp::MIN_SNR_FRAMES) continue;
     dsp::SnrStats stats = dsp::compute_snr(full);
 
-    curve[2*t]=(float)DM; curve[2*t+1]=stats.snr;
+    curve[2*t+1]=stats.snr;
     if(stats.snr>best_snr){ best_snr=stats.snr; best_dm=DM; best=prof; }
   }
 

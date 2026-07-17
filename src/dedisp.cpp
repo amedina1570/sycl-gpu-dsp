@@ -25,12 +25,15 @@ int main(int argc, char** argv) {
 
   // Load spectrogram
   std::ifstream f(inpath, std::ios::binary | std::ios::ate);
-  if(!f){ printf("cannot open %s\n", inpath); return 1; }
+  if(!f){ fprintf(stderr, "cannot open %s\n", inpath); return 1; }
   std::streamsize bytes = f.tellg(); f.seekg(0);
   size_t nframes = (bytes/sizeof(float)) / NFFT;
   printf("nframes = %zu\n", nframes);
   std::vector<float> spec(nframes*NFFT);
-  f.read(reinterpret_cast<char*>(spec.data()), bytes);
+  // Read only whole frames: `bytes` may include a trailing partial frame
+  // (e.g. a truncated file) that the buffer above deliberately excludes.
+  f.read(reinterpret_cast<char*>(spec.data()), nframes*NFFT*sizeof(float));
+  if(!f){ fprintf(stderr, "short read from %s\n", inpath); return 1; }
 
   // Precompute per-bin frame shifts on host (small, NFFT entries)
   std::vector<int> shift = dsp::compute_dm_shifts(DM, FC, FS, NFFT, t_frame);

@@ -15,12 +15,17 @@ if len(sys.argv) >= 2:
     mark_pulse = False
     title = f'Spectrogram — {bin_path}'
 else:
-    # Legacy demo mode: reproduces the Crab giant-pulse figure from the README.
+    # Legacy demo mode: reproduces the Crab giant-pulse figure from the README
+    # from stageC's default output names in the current directory.
     NFFT, HOP, FS, FC = 8192, 2048, 20e6, 410e6
-    bin_path = '/home/user/crab_spectrogram.bin'
-    out_png = '/home/user/crab_spectrogram.png'
+    bin_path = 'crab_spectrogram.bin'
+    out_png = 'crab_spectrogram.png'
     mark_pulse = True
     title = 'Crab pulsar giant pulse — Dwingeloo 20 Msps'
+
+# Known giant-pulse arrival in the bundled Crab recording (sample index at
+# 20 Msps), marked on the legacy demo figure.
+CRAB_PULSE_SAMPLE = 391475
 
 # Memory-map instead of loading the whole .bin: for a long recording (e.g.
 # iq2spectrogram's chunked output on a multi-GB IQ file) the spectrogram
@@ -53,7 +58,7 @@ plt.imshow(spec.T, aspect='auto', origin='lower',
            cmap='viridis', vmax=np.percentile(spec,99.5),
            vmin=np.percentile(spec,20))
 if mark_pulse:
-    plt.axvline(391475/FS, color='r', ls='--', lw=0.7, alpha=0.6)  # expected pulse
+    plt.axvline(CRAB_PULSE_SAMPLE/FS, color='r', ls='--', lw=0.7, alpha=0.6)
 plt.xlabel('Time (s)'); plt.ylabel('Frequency (MHz)')
 plt.title(title)
 plt.colorbar(label='Power (dB)')

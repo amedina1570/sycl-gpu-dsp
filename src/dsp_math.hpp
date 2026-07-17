@@ -15,6 +15,12 @@ inline float decode_i16(int16_t raw) {
   return raw / INT16_FULL_SCALE;
 }
 
+// Overload set so generic (templated) kernels can decode either supported
+// raw sample type with one spelling: int16 gets normalized, float32 is
+// already in natural units and passes through.
+inline float decode_sample(int16_t raw) { return decode_i16(raw); }
+inline float decode_sample(float raw)   { return raw; }
+
 // Incoherent-dispersion delay (in frames) of frequency channel fk_hz
 // relative to reference frequency fref_hz, for a given dispersion measure.
 // Standard cold-plasma dispersion law: t(s) = K * DM * (f_GHz^-2), K = DM_DELAY_CONST_S.
@@ -49,7 +55,7 @@ struct SnrStats {
 
 // SNR = (peak - median) / stddev over a set of per-frame profile values
 // (linear power, mean-per-channel). Matches dmsearch.cpp's scoring.
-inline SnrStats compute_snr(std::vector<float> values) {
+inline SnrStats compute_snr(const std::vector<float>& values) {
   SnrStats out;
   if (values.empty()) return out;
 

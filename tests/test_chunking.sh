@@ -74,10 +74,12 @@ import numpy as np, sys
 NFFT = 8192
 spec = np.fromfile('$WORK/wide_spectrogram.bin', dtype=np.float32).reshape(-1, NFFT)
 peak = spec[0].argmax()
-expected = NFFT//2 - 137   # fftshifted bin for a tone at k0=137
-sys.exit(0 if peak == expected else 1)
+# The tone is a real cosine, so its spectrum has exactly-symmetric peaks at
+# +-137; FFT rounding decides which one argmax lands on. Accept either.
+expected = {NFFT//2 - 137, NFFT//2 + 137}
+sys.exit(0 if peak in expected else 1)
 "
-check $? "peak bin matches the known input tone (bin $((8192/2-137)))"
+check $? "peak bin matches the known input tone (bin $((8192/2))±137)"
 
 if python3 -c "import matplotlib" >/dev/null 2>&1; then
   echo "--- checking view_spec.py handles the (downsampled) output ---"

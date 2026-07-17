@@ -28,7 +28,7 @@ def format_duration(seconds):
     return f'{seconds:.4f} s'
 
 
-def detect_pulses(envelope, fs, threshold_frac, min_pulse_samples):
+def detect_pulses(envelope, threshold_frac, min_pulse_samples):
     """Threshold the envelope at floor + threshold_frac*(peak-floor) and pair
     rising/falling edges into complete pulses. Returns (rising_idx, falling_idx, threshold)."""
     floor = np.percentile(envelope, 10)
@@ -112,7 +112,7 @@ def main():
         kernel = np.ones(args.smooth_samples) / args.smooth_samples
         envelope = np.convolve(envelope, kernel, mode='same')
 
-    rising, falling, threshold = detect_pulses(envelope, fs, args.threshold_frac, args.min_pulse_samples)
+    rising, falling, threshold = detect_pulses(envelope, args.threshold_frac, args.min_pulse_samples)
     stats = pulse_stats(rising, falling, fs)
 
     print(f"pulses detected: {stats['n_pulses']}")

@@ -2,6 +2,7 @@
 #include "sycl_dsp_math.hpp"
 #include "dsp_math.hpp"
 #include "crab_example.hpp"
+#include "cufft_interop.hpp"
 #include <sycl/sycl.hpp>
 #include <cufft.h>
 #include <cuda_runtime.h>
@@ -10,10 +11,6 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
-#include <exception>
-
-#define CUFFT_CHECK(x) do { cufftResult r=(x); \
-  if(r!=CUFFT_SUCCESS){printf("cuFFT error %d at line %d\n",r,__LINE__);return 1;} }while(0)
 
 int main(int argc, char** argv) {
   const char* inpath  = (argc>1)? argv[1] : "crab-giantpulse.sigmf-data";
@@ -21,34 +18,23 @@ int main(int argc, char** argv) {
 
   constexpr int NFFT = crab::NFFT, HOP = crab::HOP;
 
-  sycl::queue q{
-    [](sycl::exception_list exceptions) {
-      for (const std::exception_ptr& e : exceptions) {
-        try {
-          std::rethrow_exception(e);
-        } catch (const sycl::exception& ex) {
-          std::printf("asynchronous SYCL exception: %s\n", ex.what());
-        }
-      }
-    },
-    sycl::property::queue::in_order{}};
-  printf("Device: %s\n", q.get_device().get_info<sycl::info::device::name>().c_str());
-  if (q.get_device().get_backend() != sycl::backend::cuda) {
-    printf("cuFFT interop requires a SYCL queue backed by the CUDA backend\n");
-    return 1;
-  }
+  sycl::queue q = cufft_util::make_inorder_queue();
+  if (!cufft_util::require_cuda_backend(q)) return 1;
 
   // --- Load ci16_le ---
   std::ifstream f(inpath, std::ios::binary | std::ios::ate);
-  if(!f){ printf("cannot open %s\n", inpath); return 1; }
+  if(!f){ fprintf(stderr, "cannot open %s\n", inpath); return 1; }
   std::streamsize bytes = f.tellg(); f.seekg(0);
   size_t nsamp = bytes/4;
   if (nsamp < (size_t)NFFT) {
-    printf("file too short for NFFT=%d\n", NFFT);
+    fprintf(stderr, "file too short for NFFT=%d\n", NFFT);
     return 1;
   }
   std::vector<int16_t> raw(nsamp*2);
-  f.read(reinterpret_cast<char*>(raw.data()), bytes);
+  // Read only whole samples: `bytes` may include a trailing partial sample
+  // (e.g. a truncated file) that the buffer above deliberately excludes.
+  f.read(reinterpret_cast<char*>(raw.data()), nsamp*2*sizeof(int16_t));
+  if(!f){ fprintf(stderr, "short read from %s\n", inpath); return 1; }
   size_t nframes = (nsamp - NFFT)/HOP + 1;
   printf("samples=%zu  frames=%zu\n", nsamp, nframes);
 
@@ -72,20 +58,8 @@ int main(int argc, char** argv) {
   // --- Batched cuFFT via interop ---
   cufftHandle plan;
   CUFFT_CHECK(cufftPlan1d(&plan, NFFT, CUFFT_C2C, (int)nframes));
-  q.submit([&](sycl::handler& cgh){
-    cgh.AdaptiveCpp_enqueue_custom_operation([=](sycl::interop_handle& ih){
-      auto stream = ih.get_native_queue<sycl::backend::cuda>();
-      cufftResult r = cufftSetStream(plan, stream);
-      if (r != CUFFT_SUCCESS) {
-        printf("cuFFT error %d in cufftSetStream\n", r);
-        return;
-      }
-      r = cufftExecC2C(plan, d_batch, d_batch, CUFFT_FORWARD);
-      if (r != CUFFT_SUCCESS) {
-        printf("cuFFT error %d in cufftExecC2C\n", r);
-      }
-    });
-  });
+  cufftResult fft_status = CUFFT_SUCCESS;
+  cufft_util::enqueue_exec_c2c_forward(q, plan, d_batch, &fft_status);
 
   // --- Magnitude (dB) + fftshift, 2D range ---
   q.parallel_for(sycl::range<2>{nframes, (size_t)NFFT}, [=](sycl::id<2> id){
@@ -97,6 +71,10 @@ int main(int argc, char** argv) {
     d_spec[fr*NFFT + ks] = db;
   });
   q.wait();
+  if (fft_status != CUFFT_SUCCESS) {
+    fprintf(stderr, "cuFFT error %d executing FFT\n", fft_status);
+    return 1;
+  }
 
   // --- Copy back and write float32 .bin (row-major: frames x NFFT) ---
   std::vector<float> spec(nframes*NFFT);

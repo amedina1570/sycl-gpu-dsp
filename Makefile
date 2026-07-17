@@ -36,6 +36,12 @@ SM_ARCH ?= $(shell cc=`nvidia-smi --query-gpu=compute_cap --format=csv,noheader 
 
 CXX ?= g++
 
+# Fail with a clear message (instead of a cryptic shell error) if a rule that
+# needs acpp runs and detection came up empty. Expanded in recipes, so
+# acpp-free targets (host tests, print-config, clean) still work without it.
+require-acpp = $(if $(ACPP),,$(error acpp not found -- install AdaptiveCpp, \
+  source env/acpp-env.sh, or pass ACPP=/path/to/acpp))
+
 # --- Layout & flags ---------------------------------------------------------
 
 SRC        := src
@@ -72,9 +78,11 @@ all: $(ALL_BINS)
 # --- Build rules ------------------------------------------------------------
 
 $(GENERIC_BINS): $(BUILD)/%: $(SRC)/%.cpp $(HEADERS) | $(BUILD)
+	$(require-acpp)
 	$(ACPP) $(ACPP_FLAGS) $(SYCL_TARGET) -I$(SRC) $< -o $@
 
 $(CUDA_BINS): $(BUILD)/%: $(SRC)/%.cpp $(HEADERS) | $(BUILD)
+	$(require-acpp)
 	$(ACPP) $(ACPP_FLAGS) $(CUDA_TARGET) -I$(SRC) $< -o $@ \
 	  $(CUDA_INCLUDES) $(CUDA_LIBS)
 
@@ -103,9 +111,11 @@ $(TEST_BUILD)/host_tests: $(HOST_TEST_SRCS) $(HEADERS) | $(TEST_BUILD)
 
 $(TEST_BUILD)/test_fft_vs_dft $(TEST_BUILD)/test_window_kernel: \
     $(TEST_BUILD)/%: $(TESTS)/gpu/%.cpp $(HEADERS) | $(TEST_BUILD)
+	$(require-acpp)
 	$(ACPP) $(ACPP_FLAGS) $(SYCL_TARGET) -I$(SRC) -I$(TESTS) $< -o $@
 
 $(TEST_BUILD)/test_cufft_batch: $(TESTS)/gpu/test_cufft_batch.cpp $(HEADERS) | $(TEST_BUILD)
+	$(require-acpp)
 	$(ACPP) $(ACPP_FLAGS) $(CUDA_TARGET) -I$(SRC) -I$(TESTS) \
 	  $(CUDA_INCLUDES) $(CUDA_LIBS) $< -o $@
 
