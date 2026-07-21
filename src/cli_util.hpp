@@ -51,4 +51,15 @@ inline std::size_t chunk_sample_count(std::size_t frames_in_chunk, int hop, int 
   return (frames_in_chunk - 1) * (std::size_t)hop + (std::size_t)nfft;
 }
 
+// Absolute raw-sample index a chunk starting at frame f0 must seek to:
+// frame f reads samples starting at f*hop, so the chunk's first frame reads
+// starting at f0*hop. Pulled out as its own unit-tested function because an
+// off-by-a-few-samples error here is invisible downstream -- for stationary
+// signals a fixed sample offset is a pure time shift, and the Fourier shift
+// theorem means it doesn't move a magnitude spectrum, so this exact bug
+// class can silently pass any spectrogram-output-based check.
+inline std::size_t chunk_start_sample(std::size_t f0, int hop) {
+  return f0 * (std::size_t)hop;
+}
+
 } // namespace cli

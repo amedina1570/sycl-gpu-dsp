@@ -89,6 +89,55 @@ else
   echo "  (skipping view_spec.py check: matplotlib not installed)"
 fi
 
+echo "--- checking chunked output against an independent ground truth ---"
+# The byte-identical check above only proves wide/narrow chunking agree with
+# EACH OTHER, not that either is actually correct. This computes a handful
+# of frames straight from the raw file in numpy -- decode -> Hann window ->
+# FFT -> dB -> fftshift, entirely independent of iq2spectrogram's C++/cuFFT
+# implementation -- and diffs them against the many-small-chunks run, so a
+# bug in the windowing/FFT/dB/fftshift math itself (applied to whichever
+# samples got read) would be caught even if it happened to affect wide and
+# narrow chunking identically.
+#
+# What this does NOT catch: a seek offset that's wrong by a small constant
+# for every chunk. Magnitude spectra are shift-invariant (Fourier shift
+# theorem), so a uniform few-sample misread is invisible to any check based
+# on spectrogram output, no matter how it's computed -- see
+# cli::chunk_start_sample in cli_util.hpp and its unit test in
+# test_cli_util.cpp, which is where that bug class is actually caught.
+python3 -c "
+import numpy as np, sys
+
+NFFT, HOP = 8192, 2048
+raw = np.fromfile('$WORK/test.sigmf-data', dtype=np.int16).reshape(-1, 2)
+iq = (raw[:, 0].astype(np.float64) + 1j * raw[:, 1].astype(np.float64)) / 32768.0
+nframes = (len(iq) - NFFT) // HOP + 1
+
+n = np.arange(NFFT)
+window = 0.5 * (1.0 - np.cos(2*np.pi*n/(NFFT-1)))  # must match dsp::hann_coeff exactly
+
+spec = np.memmap('$WORK/narrow_spectrogram.bin', dtype=np.float32).reshape(-1, NFFT)
+
+ok = True
+for idx in (0, nframes // 2, nframes - 1):
+    frame = iq[idx*HOP : idx*HOP + NFFT] * window
+    fft = np.fft.fft(frame)
+    db = 10*np.log10(np.abs(fft)**2 + 1e-12)
+    expected = np.fft.fftshift(db)
+    actual = spec[idx].astype(np.float64)
+    # Only bins within 30dB of the frame's peak: cuFFT (single precision,
+    # different summation order) vs this independent numpy DFT diverge by
+    # tens of dB deep in the noise floor from rounding alone, same caveat
+    # test_cufft_batch.cpp documents -- not a correctness issue there.
+    mask = expected >= (expected.max() - 30)
+    err = np.max(np.abs(expected[mask] - actual[mask]))
+    print(f'  frame {idx}: max err (near-peak bins) = {err:.3f} dB')
+    if err > 1.0:
+        ok = False
+sys.exit(0 if ok else 1)
+"
+check $? "chunked output matches an independently-computed ground truth"
+
 echo
 echo "pass=$pass fail=$fail"
 [[ "$fail" -eq 0 ]]

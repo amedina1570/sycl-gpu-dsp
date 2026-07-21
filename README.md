@@ -128,7 +128,9 @@ adds `$ACPP_HOME/bin`; override `ACPP_HOME` for a non-default install).
 
 ## Software requirements
 
-- **Linux** (native or WSL2) — the examples below assume Ubuntu 24.04
+- **Linux** (native or WSL2) — the examples below assume Ubuntu 24.04. On
+  WSL2, the NVIDIA driver lives on the Windows side; install the CUDA
+  *toolkit* (not another driver) inside WSL
 - **NVIDIA GPU + driver** with a CUDA compute capability matching your
   target (this repo defaults to `sm_75`, Turing); adjust for your card
 - **CUDA Toolkit** (`nvcc`, `cufft`, `cudart`) — developed against 12.6
@@ -139,16 +141,6 @@ adds `$ACPP_HOME/bin`; override `ACPP_HOME` for a non-default install).
 - **g++** with C++17 support — only needed to build the host-side unit
   tests (`tests/host/`); GPU tests and all `acpp`-compiled programs don't
   need it
-
-## Build environment
-
-- WSL2 (Ubuntu 24.04), NVIDIA RTX 2070 (Turing, sm_75)
-- AdaptiveCpp built against LLVM 18 + CUDA 12.6
-- NVIDIA driver on Windows; CUDA toolkit (not driver) inside WSL
-
-Activate the toolchain:
-
-    source env/acpp-env.sh
 
 ## Programs
 
@@ -211,11 +203,17 @@ on the GPU, matching the compile flags used above.
 `tests/test_chunking.sh` is a separate end-to-end smoke test for
 `iq2spectrogram`'s chunked/streaming processing (large-file support): it
 generates a synthetic IQ file, runs it once with the default `--chunk-mb`
-and once forced into many small chunks, and checks the two runs produce
+and once forced into many small chunks, and checks that the two runs produce
 byte-identical `.bin` output, that the recovered tone lands in the expected
-bin, and that `view_spec.py` can plot the result. It confirms chunking
-doesn't change *what* gets computed, not that the DSP math itself is
-correct — that's what the doctest GPU suite above is for.
+bin, that a handful of frames match an independent numpy computation of the
+same windowed FFT (straight from the raw file, bypassing the chunking logic
+entirely), and that `view_spec.py` can plot the result. Byte-identical
+wide-vs-narrow chunking only proves the two runs agree with *each other*; a
+bug that shifts every chunk's read position by the same fixed offset would
+affect both equally and slip through undetected by any spectrogram-based
+check — magnitude spectra are shift-invariant, so that specific bug class is
+instead caught by a plain unit test on the seek arithmetic
+(`chunk_start_sample` in `tests/host/test_cli_util.cpp`).
 
     ./tests/test_chunking.sh      # needs acpp + GPU, ~1-2 min
 

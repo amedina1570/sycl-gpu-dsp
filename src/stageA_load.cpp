@@ -1,4 +1,9 @@
 // Stage A: load ci16_le SigMF IQ, convert to complex float, report stats.
+//
+// Pedagogical build-up step (fixed to the Crab dataset, single-shot
+// full-file load). For real files, iq2spectrogram.cpp supersedes this --
+// it does the same load/decode plus streamed chunking so files larger than
+// host/GPU memory don't crash.
 #include "dsp_math.hpp"
 #include <algorithm>
 #include <cstdint>

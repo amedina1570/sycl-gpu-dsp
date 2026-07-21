@@ -274,7 +274,7 @@ int main(int argc, char** argv) {
     // small overlap from disk (via an absolute seek) is simpler than
     // carrying it over by hand and, for realistic chunk sizes, negligible
     // I/O overhead.
-    f.seekg((std::streamoff)(f0 * (size_t)HOP) * bytes_per_sample);
+    f.seekg((std::streamoff)cli::chunk_start_sample(f0, HOP) * bytes_per_sample);
 
     bool ok = is_ci16 ? stage_chunk(raw_i16, d_raw_i16, samples_here, frames_here)
                       : stage_chunk(raw_f32, d_raw_f32, samples_here, frames_here);
