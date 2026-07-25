@@ -9,6 +9,11 @@ local memory) through a hand-written FFT and cuFFT interop. A worked
 radio-astronomy example — interstellar dedispersion of a Crab pulsar giant
 pulse — demonstrates the pipeline end-to-end on a real capture.
 
+**New to the project?** [docs/TUTORIAL.md](docs/TUTORIAL.md) walks through
+the SYCL/GPU concepts and the DSP theory behind every tool here, in the
+same order the repository is organized — start there if you want to
+understand *why*, not just *how to run it*.
+
 ## Highlights
 
 - USM memory management, in-order queues, cooperative work-items, local memory
@@ -89,6 +94,32 @@ auto-detection as `iq2spectrogram`.
     python3 view/view_iq_snapshot.py path/to/recording.sigmf-data \
       --offset 0 --nsamp 4096
     # -> writes <stem>_snapshot.png
+
+### RF signal characterization: Welch PSD, occupied bandwidth, noise floor
+
+For continuous RF signals (as opposed to the pulsed captures below),
+`view/view_iq_snapshot.py`'s single windowed FFT is a noisy spectral
+estimate. `view/view_welch.py` instead averages many overlapping
+periodograms (`scipy.signal.welch`) over a longer segment for a much
+cleaner power spectral density, and reports a numeric summary alongside
+the plot: noise floor, peak, and an occupied-bandwidth estimate (the
+contiguous region around the peak that stays within `--obw-down-db` of
+it, default 10 dB).
+
+    python3 view/view_welch.py path/to/recording.sigmf-data --duration 20e-3
+    # -> writes <stem>_welch.png and <stem>_welch.json
+
+If the peak keeps landing on a narrow spur or CW tone (LO leakage, a
+calibration signal, ...) instead of a wider signal you actually care about
+elsewhere in the band, add `--obw-smooth-khz 100` (or similar) to smooth
+the search before peak-finding — but leave it at the default (0, disabled)
+when the signal of interest genuinely is narrowband, where smoothing would
+dilute its own peak into the noise floor. Validated against the real NIST
+TN 2159 LTE capture used to validate `csv2sigmf`/`iq2spectrogram`: with
+smoothing disabled the peak correctly lands on an isolated LO-leakage-like
+spur off to one side of the band; with `--obw-smooth-khz 200` it correctly
+finds the much wider (~10 MHz within a -10 dB threshold), lower-amplitude
+PUSCH channel instead.
 
 ### RADAR-like pulse trains
 
@@ -177,7 +208,8 @@ adds `$ACPP_HOME/bin`; override `ACPP_HOME` for a non-default install).
 - **[AdaptiveCpp](https://github.com/AdaptiveCpp/AdaptiveCpp)** built
   against LLVM 18 + CUDA 12.6, providing the `acpp` SYCL compiler
 - **Python 3** with `numpy` and `matplotlib` — only needed to render
-  spectrogram/dedispersion/DM-search PNGs via `view/*.py`
+  spectrogram/dedispersion/DM-search PNGs via `view/*.py` (`scipy` is
+  additionally needed for `view/view_welch.py`)
 - **g++** with C++17 support — only needed to build the host-side unit
   tests (`tests/host/`); GPU tests and all `acpp`-compiled programs don't
   need it
@@ -195,6 +227,7 @@ adds `$ACPP_HOME/bin`; override `ACPP_HOME` for a non-default install).
 | `src/iq2spectrogram.cpp` | **Combined CLI**: any IQ file in -> spectrogram PNG out, streamed in bounded chunks (stages A+C+viewer) |
 | `view/view_spec.py`     | Matplotlib spectrogram viewer, memory-maps + downsamples large `.bin` output |
 | `view/view_iq_snapshot.py` | Quick-look plot (FFT spectrum, time-domain I/Q, I/Q scatter) for a short segment of any SigMF IQ file |
+| `view/view_welch.py`    | Welch PSD estimate + noise floor/occupied-bandwidth summary for a segment of any SigMF IQ file |
 
 **SYCL fundamentals** (the building blocks the pipeline above is written from):
 
@@ -232,6 +265,22 @@ three that call cuFFT directly (`stageB_cufft`, `stageC_spectrogram`,
 
 See `make print-config` for the flags it resolved, and the [Building](#building)
 section above for overriding the detected acpp / CUDA path.
+
+## API reference
+
+The reusable headers in `src/*.hpp` (dsp_math.hpp, cli_util.hpp,
+sigmf_meta.hpp, dft_lib.hpp/fft_lib.hpp/radar_lib.hpp, etc.) carry full
+[Doxygen](https://www.doxygen.nl/) comments; the `.cpp` programs built from
+them carry a `@file` brief. Generate the browsable HTML reference with:
+
+    make docs
+    # -> open build/docs/html/index.html
+
+(Needs `doxygen` and `dot` (Graphviz), both on `PATH` -- the latter renders
+each file's include graph; set `HAVE_DOT = NO` in `Doxyfile` to skip it if
+you don't want the dependency.) The generated site also includes this
+README and [docs/TUTORIAL.md](docs/TUTORIAL.md) as
+browsable pages.
 
 ## Testing
 
