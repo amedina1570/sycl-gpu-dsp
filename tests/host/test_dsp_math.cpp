@@ -59,3 +59,83 @@ TEST_CASE("compute_snr handles degenerate inputs without dividing by zero") {
   CHECK(single.peak == doctest::Approx(7.0f));
   CHECK(single.snr == doctest::Approx(0.0f));
 }
+
+TEST_CASE("percentile matches numpy's linear-interpolation method") {
+  std::vector<float> v = {1, 2, 3, 4, 5};
+  CHECK(dsp::percentile(v, 0.0) == doctest::Approx(1.0f));
+  CHECK(dsp::percentile(v, 50.0) == doctest::Approx(3.0f));
+  CHECK(dsp::percentile(v, 100.0) == doctest::Approx(5.0f));
+  CHECK(dsp::percentile(std::vector<float>{1, 2}, 50.0) == doctest::Approx(1.5f));
+  CHECK(dsp::percentile(std::vector<float>{7}, 50.0) == doctest::Approx(7.0f));
+  CHECK(dsp::percentile({}, 50.0) == doctest::Approx(0.0f));
+}
+
+TEST_CASE("detect_pulses finds two clean rectangular pulses") {
+  // 40 samples, baseline 0, two 5-sample-wide pulses of amplitude 1 at
+  // [5,10) and [20,25) -- rising[i] is the pulse's first high sample,
+  // falling[i] is one past its last (matches Python detect_pulses).
+  std::vector<float> env(40, 0.0f);
+  for (int i = 5; i < 10; ++i) env[i] = 1.0f;
+  for (int i = 20; i < 25; ++i) env[i] = 1.0f;
+
+  dsp::PulseDetection det = dsp::detect_pulses(env, 0.5f, 3);
+  REQUIRE(det.rising.size() == 2);
+  REQUIRE(det.falling.size() == 2);
+  CHECK(det.rising[0] == 5);   CHECK(det.falling[0] == 10);
+  CHECK(det.rising[1] == 20);  CHECK(det.falling[1] == 25);
+  CHECK(det.threshold == doctest::Approx(0.5f));
+}
+
+TEST_CASE("detect_pulses drops pulses cut off at either boundary") {
+  // Active from sample 0 (no rising edge captured) through sample 4, then a
+  // clean pulse at [10,15), then active again from 30 through the end (no
+  // falling edge captured). Only the clean middle pulse should survive.
+  std::vector<float> env(35, 0.0f);
+  for (int i = 0; i < 5; ++i) env[i] = 1.0f;
+  for (int i = 10; i < 15; ++i) env[i] = 1.0f;
+  for (int i = 30; i < 35; ++i) env[i] = 1.0f;
+
+  dsp::PulseDetection det = dsp::detect_pulses(env, 0.5f, 3);
+  REQUIRE(det.rising.size() == 1);
+  CHECK(det.rising[0] == 10);
+  CHECK(det.falling[0] == 15);
+}
+
+TEST_CASE("detect_pulses filters out pulses shorter than min_pulse_samples") {
+  std::vector<float> env(20, 0.0f);
+  env[5] = 1.0f;                      // 1-sample blip
+  for (int i = 10; i < 15; ++i) env[i] = 1.0f;  // 5-sample real pulse
+
+  dsp::PulseDetection det = dsp::detect_pulses(env, 0.5f, 3);
+  REQUIRE(det.rising.size() == 1);
+  CHECK(det.rising[0] == 10);
+}
+
+TEST_CASE("pulse_stats on a synthetic two-pulse train matches hand-computed PRI/PRF") {
+  dsp::PulseDetection det;
+  det.rising = {5, 20};
+  det.falling = {10, 25};
+  dsp::PulseStats s = dsp::pulse_stats(det, 1000.0);  // fs = 1000 Hz
+
+  CHECK(s.n_pulses == 2);
+  CHECK(s.pulse_width_mean_s == doctest::Approx(0.005f));
+  CHECK(s.pulse_width_std_s == doctest::Approx(0.0f));
+  REQUIRE(s.has_pri);
+  CHECK(s.pri_mean_s == doctest::Approx(0.015f));
+  CHECK(s.prf_hz == doctest::Approx(1.0f / 0.015f));
+  CHECK(s.duty_cycle == doctest::Approx(0.005f / 0.015f));
+}
+
+TEST_CASE("pulse_stats handles 0 and 1 detected pulses without PRI") {
+  dsp::PulseStats none = dsp::pulse_stats(dsp::PulseDetection{}, 1000.0);
+  CHECK(none.n_pulses == 0);
+  CHECK_FALSE(none.has_pri);
+
+  dsp::PulseDetection one;
+  one.rising = {5};
+  one.falling = {10};
+  dsp::PulseStats s = dsp::pulse_stats(one, 1000.0);
+  CHECK(s.n_pulses == 1);
+  CHECK(s.pulse_width_mean_s == doctest::Approx(0.005f));
+  CHECK_FALSE(s.has_pri);
+}

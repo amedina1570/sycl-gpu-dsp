@@ -18,6 +18,8 @@ pulse — demonstrates the pipeline end-to-end on a real capture.
   streamed in bounded chunks so file size isn't limited by host/GPU memory
 - A worked example built on top: incoherent dedispersion and a blind
   **dispersion-measure (DM) search**, applied to a pulsar recording
+- GPU-accelerated **RADAR pulse-train detection** (width/PRI/PRF/duty
+  cycle) for pulsed captures
 
 ## Quick start: IQ file -> spectrogram image
 
@@ -80,6 +82,19 @@ envelope is what actually shows the pulse train.
     python3 view/view_radar_pulses.py path/to/recording.sigmf-data \
       --duration 5e-3
     # -> writes <stem>_radar.png and <stem>_radar.json (extracted parameters)
+
+For longer segments than comfortably fit in NumPy, `radar_pulses` is a
+GPU-accelerated port of the same detection logic (envelope + boxcar
+smoothing on SYCL, thresholding/edge-pairing/stats on host), same CLI
+surface, same `.sigmf-meta` auto-detection:
+
+    make radar_pulses
+    ./build/radar_pulses path/to/recording.sigmf-data --duration 5e-3
+    # -> writes <stem>_radar.json and <stem>_radar_envelope.bin
+
+    python3 view/view_radar_pulses.py <stem>_radar.json
+    # -> plots from the precomputed result instead of recomputing in NumPy
+    #    (re-reads only a small I/Q slice from the original file)
 
 ## Worked example: Crab pulsar giant pulse
 
@@ -156,7 +171,6 @@ adds `$ACPP_HOME/bin`; override `ACPP_HOME` for a non-default install).
 | `src/iq2spectrogram.cpp` | **Combined CLI**: any IQ file in -> spectrogram PNG out, streamed in bounded chunks (stages A+C+viewer) |
 | `view/view_spec.py`     | Matplotlib spectrogram viewer, memory-maps + downsamples large `.bin` output |
 | `view/view_iq_snapshot.py` | Quick-look plot (FFT spectrum, time-domain I/Q, I/Q scatter) for a short segment of any SigMF IQ file |
-| `view/view_radar_pulses.py` | Pulse-train analysis for RADAR-like signals: detects pulses on the envelope, extracts width/PRI/PRF/duty cycle |
 
 **SYCL fundamentals** (the building blocks the pipeline above is written from):
 
@@ -175,25 +189,33 @@ adds `$ACPP_HOME/bin`; override `ACPP_HOME` for a non-default install).
 | `src/dmsearch.cpp`      | Blind DM search maximizing pulse SNR |
 | `view/view_dedisp.py`, `view/view_dmsearch.py` | Matplotlib viewers for the dedispersion/DM-search outputs |
 
+**Worked example: RADAR pulse-train detection**:
+
+| File | Description |
+|------|-------------|
+| `src/radar_pulses.cpp`  | GPU-accelerated envelope + boxcar smoothing (SYCL), threshold/edge-detection/stats (host); width/PRI/PRF/duty cycle |
+| `view/view_radar_pulses.py` | Matplotlib viewer -- either all-NumPy standalone on a raw IQ file, or plots `radar_pulses`' precomputed `.json`/`.bin` output |
+
 ## Compiling
 
-Build any single program by name — the Makefile knows which need only the
-generic SYCL target (`01_usm`, …, `dedisp`, `dmsearch`) and which need the
-CUDA target plus a cuFFT link (`stageB_cufft`, `stageC_spectrogram`,
+Build any single program by name — every program compiles through the same
+`generic` SYCL target; the Makefile just also links `cufft`/`cudart` for the
+three that call cuFFT directly (`stageB_cufft`, `stageC_spectrogram`,
 `iq2spectrogram`):
 
     make build/01_usm
     make build/stageC_spectrogram
 
 See `make print-config` for the flags it resolved, and the [Building](#building)
-section above for overriding the detected acpp / CUDA path / GPU arch.
+section above for overriding the detected acpp / CUDA path.
 
 ## Testing
 
 Shared host-side logic (SigMF metadata parsing, CLI validation, dispersion
-math, SNR scoring) and GPU kernels (Hann window, radix-2 FFT vs. naive DFT,
-batched cuFFT interop) are split into reusable headers in `src/` and covered
-by a [doctest](https://github.com/doctest/doctest)-based suite in `tests/`:
+math, SNR scoring, pulse-train detection/stats) and GPU kernels (Hann
+window, radix-2 FFT vs. naive DFT, batched cuFFT interop, pulse envelope +
+smoothing) are split into reusable headers in `src/` and covered by a
+[doctest](https://github.com/doctest/doctest)-based suite in `tests/`:
 
     ./tests/run_tests.sh          # host tests + GPU tests (needs acpp + GPU)
     ./tests/run_tests.sh --host   # host tests only, no acpp/GPU required
@@ -218,6 +240,17 @@ instead caught by a plain unit test on the seek arithmetic
 (`chunk_start_sample` in `tests/host/test_cli_util.cpp`).
 
     ./tests/test_chunking.sh      # needs acpp + GPU, ~1-2 min
+
+`tests/test_radar_pulses.sh` is the equivalent end-to-end smoke test for
+`radar_pulses`: it synthesizes a rectangular-envelope pulse train (known
+PRI/width) as a complex-baseband IQ file, runs `radar_pulses` on it, checks
+the reported width/PRI/PRF/duty-cycle against the known ground truth,
+cross-checks against the same file run through the all-NumPy
+`view_radar_pulses.py` path (two independent implementations should agree),
+and confirms `view_radar_pulses.py` can plot the precomputed `.json` result
+without error.
+
+    ./tests/test_radar_pulses.sh  # needs acpp + GPU, numpy; ~10 s
 
 ## License
 

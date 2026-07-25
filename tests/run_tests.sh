@@ -49,9 +49,10 @@ make -C "$ROOT" gpu-tests
 # cuFFT/cudart live under the CUDA the Makefile linked against.
 export LD_LIBRARY_PATH="$(make -C "$ROOT" -s print-cuda-path)/lib64:${LD_LIBRARY_PATH:-}"
 
-run_bin "test_fft_vs_dft"    "$TEST_BUILD/test_fft_vs_dft"
-run_bin "test_window_kernel" "$TEST_BUILD/test_window_kernel"
-run_bin "test_cufft_batch"   "$TEST_BUILD/test_cufft_batch"
+run_bin "test_fft_vs_dft"     "$TEST_BUILD/test_fft_vs_dft"
+run_bin "test_window_kernel"  "$TEST_BUILD/test_window_kernel"
+run_bin "test_radar_envelope" "$TEST_BUILD/test_radar_envelope"
+run_bin "test_cufft_batch"    "$TEST_BUILD/test_cufft_batch"
 
 echo "pass=$pass fail=$fail"
 [[ "$fail" -eq 0 ]]

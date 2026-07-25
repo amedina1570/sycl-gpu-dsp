@@ -52,7 +52,7 @@ HOST_FLAGS    := -O1 -std=c++17 -I$(SRC) -I$(TESTS)
 # most portable -- see doc/performance.md in the AdaptiveCpp repo). CUDA_PROGS
 # differ only in that they call cuFFT directly and so need cufft/cudart on
 # the include/link line; that's independent of the SYCL compilation target.
-GENERIC_PROGS := 01_usm 02_window 03_dft 04_fft dedisp dmsearch
+GENERIC_PROGS := 01_usm 02_window 03_dft 04_fft dedisp dmsearch radar_pulses
 CUDA_PROGS    := stageB_cufft stageC_spectrogram iq2spectrogram
 HOST_PROGS    := stageA_load
 
@@ -98,13 +98,14 @@ HOST_TEST_SRCS := $(TESTS)/host/main.cpp \
 host-tests: $(TEST_BUILD)/host_tests
 gpu-tests:  $(TEST_BUILD)/test_fft_vs_dft \
             $(TEST_BUILD)/test_window_kernel \
+            $(TEST_BUILD)/test_radar_envelope \
             $(TEST_BUILD)/test_cufft_batch
 tests: host-tests gpu-tests
 
 $(TEST_BUILD)/host_tests: $(HOST_TEST_SRCS) $(HEADERS) | $(TEST_BUILD)
 	$(CXX) $(HOST_FLAGS) $(HOST_TEST_SRCS) -o $@
 
-$(TEST_BUILD)/test_fft_vs_dft $(TEST_BUILD)/test_window_kernel: \
+$(TEST_BUILD)/test_fft_vs_dft $(TEST_BUILD)/test_window_kernel $(TEST_BUILD)/test_radar_envelope: \
     $(TEST_BUILD)/%: $(TESTS)/gpu/%.cpp $(HEADERS) | $(TEST_BUILD)
 	$(require-acpp)
 	$(ACPP) $(ACPP_FLAGS) $(SYCL_TARGET) -I$(SRC) -I$(TESTS) $< -o $@
