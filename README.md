@@ -171,6 +171,7 @@ Data: Crab giant pulse, Stichting CAMRAS / M. Fine & T. J. Dijkema,
 Zenodo DOI [10.5281/zenodo.13143544](https://doi.org/10.5281/zenodo.13143544),
 CC BY-SA 4.0. Not included in this repo — download separately.
 
+<a name="building"></a>
 ## Building
 
 Everything builds through a single auto-detecting Makefile, so the same
