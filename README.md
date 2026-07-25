@@ -28,7 +28,7 @@ Python viewer into one command: feed it a SigMF `ci16_le`/`cf32_le` IQ file,
 get a spectrogram PNG back. Sample rate, center frequency, and datatype are
 auto-read from a `.sigmf-meta` sidecar when present.
 
-    make iq2spectrogram        # auto-detects acpp, CUDA, and your GPU's arch
+    make iq2spectrogram        # auto-detects acpp and CUDA
 
     ./build/iq2spectrogram path/to/recording.sigmf-data
     # -> writes <stem>_spectrogram.{bin,json,png} next to your working directory
@@ -54,6 +54,29 @@ multi-hundred-GB recording processes the same way a 10 MB one does, just
 slower. The viewer (`view/view_spec.py`) memory-maps the `.bin` and
 max-hold-decimates it down to the figure's pixel width instead of loading it
 whole, so plotting a huge spectrogram doesn't itself blow out RAM.
+
+### From a CSV capture
+
+Some test equipment exports I/Q as CSV instead of SigMF: a header row
+followed by one `<I>,<Q>` integer pair per line (this is the format the
+[NIST TN 2159](https://doi.org/10.6028/NIST.TN.2159) AWS-3 LTE waveform
+dataset ships in). `csv2sigmf` converts one into a `.sigmf-data`/
+`.sigmf-meta` pair that every other tool here then reads unchanged. It
+streams the file in large blocks with a hand-rolled parser (not
+`std::getline`/`std::stringstream`) so it stays fast at hundreds of
+millions of lines — tens of seconds for a multi-GB file rather than tens of
+minutes.
+
+    make csv2sigmf
+    ./build/csv2sigmf path/to/IQ.csv --fs 61.44e6 -o recording
+    # -> writes recording.sigmf-data and recording.sigmf-meta
+
+    ./build/iq2spectrogram recording.sigmf-data   # auto-reads the .sigmf-meta
+
+`--fs` is required (the CSV has no embedded sample rate); `--fc` defaults
+to 0 (pass `--fc HZ` if you know the exact center frequency). `--datatype`
+defaults to `ci16_le` (values must fit a signed 16-bit range — pass
+`--datatype cf32_le` if not).
 
 ### Quick-look: FFT + time domain + I/Q
 
@@ -165,6 +188,7 @@ adds `$ACPP_HOME/bin`; override `ACPP_HOME` for a non-default install).
 
 | File | Description |
 |------|-------------|
+| `src/csv2sigmf.cpp`     | Converts a vendor CSV I/Q dump into `.sigmf-data`/`.sigmf-meta`, streamed for hundreds-of-millions-of-lines files |
 | `src/stageA_load.cpp`   | SigMF `ci16_le` loader + sanity stats |
 | `src/stageB_cufft.cpp`  | cuFFT interop skeleton (synthetic data) |
 | `src/stageC_spectrogram.cpp` | Fixed-size demo pipeline: IQ -> windowed batched cuFFT -> spectrogram |
@@ -211,11 +235,12 @@ section above for overriding the detected acpp / CUDA path.
 
 ## Testing
 
-Shared host-side logic (SigMF metadata parsing, CLI validation, dispersion
-math, SNR scoring, pulse-train detection/stats) and GPU kernels (Hann
-window, radix-2 FFT vs. naive DFT, batched cuFFT interop, pulse envelope +
-smoothing) are split into reusable headers in `src/` and covered by a
-[doctest](https://github.com/doctest/doctest)-based suite in `tests/`:
+Shared host-side logic (SigMF metadata parsing, CSV line parsing, CLI
+validation, dispersion math, SNR scoring, pulse-train detection/stats) and
+GPU kernels (Hann window, radix-2 FFT vs. naive DFT, batched cuFFT interop,
+pulse envelope + smoothing) are split into reusable headers in `src/` and
+covered by a [doctest](https://github.com/doctest/doctest)-based suite in
+`tests/`:
 
     ./tests/run_tests.sh          # host tests + GPU tests (needs acpp + GPU)
     ./tests/run_tests.sh --host   # host tests only, no acpp/GPU required
@@ -251,6 +276,16 @@ and confirms `view_radar_pulses.py` can plot the precomputed `.json` result
 without error.
 
     ./tests/test_radar_pulses.sh  # needs acpp + GPU, numpy; ~10 s
+
+`tests/test_csv2sigmf.sh` is the equivalent end-to-end smoke test for
+`csv2sigmf`: it writes a synthetic vendor-style CSV (a known tone, as plain
+text), converts it, and confirms `iq2spectrogram` recovers the tone from
+the converted `.sigmf-data` with no extra steps — i.e. the two tools'
+output/input actually line up. It also checks that a malformed row and an
+out-of-range value are both rejected with a clear error instead of silently
+producing corrupt output.
+
+    ./tests/test_csv2sigmf.sh     # needs acpp + GPU, numpy; ~10 s
 
 ## License
 

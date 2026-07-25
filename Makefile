@@ -47,6 +47,7 @@ SYCL_TARGET   := --acpp-targets=generic
 CUDA_INCLUDES := -I$(CUDA_PATH)/include
 CUDA_LIBS     := -L$(CUDA_PATH)/lib64 -lcufft -lcudart
 HOST_FLAGS    := -O1 -std=c++17 -I$(SRC) -I$(TESTS)
+HOST_OPT_FLAGS := -O3 -std=c++17 -I$(SRC)
 
 # Every program compiles through acpp's `generic` target (JIT, fastest and
 # most portable -- see doc/performance.md in the AdaptiveCpp repo). CUDA_PROGS
@@ -55,11 +56,15 @@ HOST_FLAGS    := -O1 -std=c++17 -I$(SRC) -I$(TESTS)
 GENERIC_PROGS := 01_usm 02_window 03_dft 04_fft dedisp dmsearch radar_pulses
 CUDA_PROGS    := stageB_cufft stageC_spectrogram iq2spectrogram
 HOST_PROGS    := stageA_load
+# Host-only but performance-sensitive (hundreds-of-millions-of-lines-scale
+# CSV parsing) -- gets -O3 rather than HOST_PROGS' fast-compiling -O1.
+HOST_OPT_PROGS := csv2sigmf
 
-GENERIC_BINS := $(addprefix $(BUILD)/,$(GENERIC_PROGS))
-CUDA_BINS    := $(addprefix $(BUILD)/,$(CUDA_PROGS))
-HOST_BINS    := $(addprefix $(BUILD)/,$(HOST_PROGS))
-ALL_BINS     := $(GENERIC_BINS) $(CUDA_BINS) $(HOST_BINS)
+GENERIC_BINS  := $(addprefix $(BUILD)/,$(GENERIC_PROGS))
+CUDA_BINS     := $(addprefix $(BUILD)/,$(CUDA_PROGS))
+HOST_BINS     := $(addprefix $(BUILD)/,$(HOST_PROGS))
+HOST_OPT_BINS := $(addprefix $(BUILD)/,$(HOST_OPT_PROGS))
+ALL_BINS      := $(GENERIC_BINS) $(CUDA_BINS) $(HOST_BINS) $(HOST_OPT_BINS)
 
 # Every header is a dependency of every program: they're small and shared, and
 # a change to a constants header should rebuild everything that used it.
@@ -84,6 +89,9 @@ $(CUDA_BINS): $(BUILD)/%: $(SRC)/%.cpp $(HEADERS) | $(BUILD)
 $(HOST_BINS): $(BUILD)/%: $(SRC)/%.cpp $(HEADERS) | $(BUILD)
 	$(CXX) $(HOST_FLAGS) $< -o $@
 
+$(HOST_OPT_BINS): $(BUILD)/%: $(SRC)/%.cpp $(HEADERS) | $(BUILD)
+	$(CXX) $(HOST_OPT_FLAGS) $< -o $@
+
 $(BUILD) $(TEST_BUILD):
 	mkdir -p $@
 
@@ -92,7 +100,8 @@ $(BUILD) $(TEST_BUILD):
 HOST_TEST_SRCS := $(TESTS)/host/main.cpp \
                   $(TESTS)/host/test_sigmf_meta.cpp \
                   $(TESTS)/host/test_cli_util.cpp \
-                  $(TESTS)/host/test_dsp_math.cpp
+                  $(TESTS)/host/test_dsp_math.cpp \
+                  $(TESTS)/host/test_csv_iq.cpp
 
 .PHONY: host-tests gpu-tests tests
 host-tests: $(TEST_BUILD)/host_tests
