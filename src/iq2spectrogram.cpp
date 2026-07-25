@@ -10,6 +10,7 @@
 #include "sycl_dsp_math.hpp"
 #include "dsp_math.hpp"
 #include "cufft_interop.hpp"
+#include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <cufft.h>
 #include <cuda_runtime.h>
@@ -213,18 +214,18 @@ int main(int argc, char** argv) {
 
   // --- Device + host buffers, sized for the largest chunk and reused
   // across chunks (the final chunk just uses a prefix of them). ---
-  cufftComplex* d_batch = sycl::malloc_device<cufftComplex>(chunk_frames*(size_t)NFFT, q);
-  float*        d_spec  = sycl::malloc_device<float>(chunk_frames*(size_t)NFFT, q);
+  cufftComplex* d_batch = sycl_util::malloc_device_checked<cufftComplex>(chunk_frames*(size_t)NFFT, q, "d_batch");
+  float*        d_spec  = sycl_util::malloc_device_checked<float>(chunk_frames*(size_t)NFFT, q, "d_spec");
   int16_t* d_raw_i16 = nullptr; float* d_raw_f32 = nullptr;
   std::vector<int16_t> raw_i16;
   std::vector<float>   raw_f32;
   const bool is_ci16 = (a.datatype == "ci16_le");
   if (is_ci16) {
     raw_i16.resize(max_samples_per_chunk * 2);
-    d_raw_i16 = sycl::malloc_device<int16_t>(max_samples_per_chunk*2, q);
+    d_raw_i16 = sycl_util::malloc_device_checked<int16_t>(max_samples_per_chunk*2, q, "d_raw_i16");
   } else {
     raw_f32.resize(max_samples_per_chunk * 2);
-    d_raw_f32 = sycl::malloc_device<float>(max_samples_per_chunk*2, q);
+    d_raw_f32 = sycl_util::malloc_device_checked<float>(max_samples_per_chunk*2, q, "d_raw_f32");
   }
   std::vector<float> spec_chunk(chunk_frames * (size_t)NFFT);
 

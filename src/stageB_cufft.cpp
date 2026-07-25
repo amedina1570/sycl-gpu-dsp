@@ -1,5 +1,6 @@
 // Stage B: cuFFT via AdaptiveCpp interop, synthetic data, in isolation.
 #include "cufft_interop.hpp"
+#include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <cufft.h>
 #include <cuda_runtime.h>
@@ -17,7 +18,7 @@ int main() {
   if (!cufft_util::require_cuda_backend(q)) return 1;
 
   const size_t total = size_t(NFFT) * BATCH;
-  cufftComplex* d_data = sycl::malloc_device<cufftComplex>(total, q);
+  cufftComplex* d_data = sycl_util::malloc_device_checked<cufftComplex>(total, q, "d_data");
 
   std::vector<cufftComplex> h(total);
   for (int b = 0; b < BATCH; ++b)

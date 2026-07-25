@@ -9,6 +9,7 @@
 #include "dsp_math.hpp"
 #include "crab_example.hpp"
 #include "cufft_interop.hpp"
+#include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <cufft.h>
 #include <cuda_runtime.h>
@@ -66,9 +67,9 @@ int main(int argc, char** argv) {
   }
 
   // --- Device buffers ---
-  int16_t*      d_raw   = sycl::malloc_device<int16_t>(nsamp*2, q);
-  cufftComplex* d_batch = sycl::malloc_device<cufftComplex>(nframes*NFFT, q);
-  float*        d_spec  = sycl::malloc_device<float>(nframes*NFFT, q);
+  int16_t*      d_raw   = sycl_util::malloc_device_checked<int16_t>(nsamp*2, q, "d_raw");
+  cufftComplex* d_batch = sycl_util::malloc_device_checked<cufftComplex>(nframes*NFFT, q, "d_batch");
+  float*        d_spec  = sycl_util::malloc_device_checked<float>(nframes*NFFT, q, "d_spec");
   q.memcpy(d_raw, raw.data(), nsamp*2*sizeof(int16_t)).wait();
 
   // --- Framing + int16->float + Hann window (fused), 2D range ---

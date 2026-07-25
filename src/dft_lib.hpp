@@ -2,6 +2,7 @@
 // serve as ground truth for the radix-2 FFT (fft_lib.hpp) in tests, and so
 // 03_dft.cpp's kernel logic can be exercised outside of main().
 #pragma once
+#include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>
 
@@ -12,8 +13,8 @@ inline std::vector<float> naive_dft_mag(sycl::queue& q, const std::vector<float>
   constexpr float PI = 3.14159265358979323846f;
 
   std::vector<float> mag(N, 0.0f);
-  float* d_x   = sycl::malloc_device<float>(N, q);
-  float* d_mag = sycl::malloc_device<float>(N, q);
+  float* d_x   = sycl_util::malloc_device_checked<float>(N, q, "d_x");
+  float* d_mag = sycl_util::malloc_device_checked<float>(N, q, "d_mag");
   q.memcpy(d_x, x.data(), N * sizeof(float));
 
   q.parallel_for(sycl::range<1>{N}, [=](sycl::id<1> idx) {

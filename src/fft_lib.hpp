@@ -2,6 +2,7 @@
 // GPU-executed function extracted from 04_fft.cpp so its exact kernel logic
 // can be unit tested (e.g. cross-checked against dft_lib.hpp's naive DFT).
 #pragma once
+#include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <cmath>
 #include <vector>
@@ -18,9 +19,9 @@ inline std::vector<float> radix2_fft_mag(sycl::queue& q,
   constexpr float PI = 3.14159265358979323846f;
 
   std::vector<float> mag(N, 0.0f);
-  float* d_re  = sycl::malloc_device<float>(N, q);
-  float* d_im  = sycl::malloc_device<float>(N, q);
-  float* d_mag = sycl::malloc_device<float>(N, q);
+  float* d_re  = sycl_util::malloc_device_checked<float>(N, q, "d_re");
+  float* d_im  = sycl_util::malloc_device_checked<float>(N, q, "d_im");
+  float* d_mag = sycl_util::malloc_device_checked<float>(N, q, "d_mag");
   q.memcpy(d_re, re_in.data(), N * sizeof(float));
   q.memcpy(d_im, im_in.data(), N * sizeof(float));
 

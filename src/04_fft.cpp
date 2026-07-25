@@ -12,7 +12,19 @@ int main() {
   constexpr float  PI   = 3.14159265358979323846f;
   constexpr int    K0   = 64;                    // input tone bin
 
-  sycl::queue q{sycl::property::queue::in_order{}};
+  // Async exceptions (e.g. a failed copy/kernel) are logged instead of being
+  // silently dropped -- q.wait() alone does not rethrow them.
+  sycl::queue q{
+      [](sycl::exception_list exceptions) {
+        for (const std::exception_ptr& e : exceptions) {
+          try {
+            std::rethrow_exception(e);
+          } catch (const sycl::exception& ex) {
+            std::cerr << "asynchronous SYCL exception: " << ex.what() << "\n";
+          }
+        }
+      },
+      sycl::property::queue::in_order{}};
   std::cout << "Device: "
             << q.get_device().get_info<sycl::info::device::name>() << "\n";
 
@@ -33,5 +45,5 @@ int main() {
   bool ok = (peak == (size_t)K0) || (peak == N - (size_t)K0);
   std::cout << (ok ? "OK\n" : "FAIL\n");
 
-  return 0;
+  return ok ? 0 : 1;
 }
