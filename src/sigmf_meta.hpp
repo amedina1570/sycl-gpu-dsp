@@ -25,7 +25,14 @@ inline std::optional<double> json_number(const std::string& text, const std::str
   if (pos == std::string::npos) return std::nullopt;
   pos = text.find(':', pos + key.size() + 2);
   if (pos == std::string::npos) return std::nullopt;
-  return std::strtod(text.c_str() + pos + 1, nullptr);
+  // strtod returns 0.0 both for a genuine "0" and for "no digits parsed"
+  // (e.g. the value is null/a string/malformed); check `end` to tell those
+  // apart instead of silently treating a bad sidecar value as zero.
+  const char* start = text.c_str() + pos + 1;
+  char* end = nullptr;
+  double v = std::strtod(start, &end);
+  if (end == start) return std::nullopt;
+  return v;
 }
 
 inline std::optional<std::string> json_string(const std::string& text, const std::string& key) {
