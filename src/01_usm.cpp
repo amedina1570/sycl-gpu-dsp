@@ -1,3 +1,11 @@
+/**
+ * @file 01_usm.cpp
+ * @brief SYCL fundamentals: device USM allocation, an in-order queue with
+ * async exception logging, and explicit host<->device transfers.
+ *
+ * Adds two device float arrays element-wise on the GPU and verifies the
+ * result. See docs/TUTORIAL.md Part 1.1 for the concepts this introduces.
+ */
 #include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>

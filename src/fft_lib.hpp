@@ -1,6 +1,11 @@
-// Single-workgroup radix-2 Cooley-Tukey FFT magnitude, as a reusable
-// GPU-executed function extracted from 04_fft.cpp so its exact kernel logic
-// can be unit tested (e.g. cross-checked against dft_lib.hpp's naive DFT).
+/**
+ * @file fft_lib.hpp
+ * @brief Single-workgroup radix-2 Cooley-Tukey FFT magnitude, as a reusable
+ * GPU-executed function.
+ *
+ * Extracted from 04_fft.cpp so its exact kernel logic can be unit tested
+ * (e.g. cross-checked against dft_lib.hpp's naive DFT).
+ */
 #pragma once
 #include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
@@ -9,8 +14,18 @@
 
 namespace dsp {
 
-// N must be a power of two and N/2 must not exceed the device's max
-// work-group size (single workgroup does the whole transform).
+/// Compute `|FFT(re_in + i*im_in)|` via radix-2 Cooley-Tukey, entirely
+/// within one work-group's local memory (bit-reversal permutation, then
+/// `log2(N)` butterfly stages, each separated by a barrier).
+/// @param q Queue to run on.
+/// @param re_in Real part of the input signal, length `N`.
+/// @param im_in Imaginary part of the input signal, length `N`.
+/// @return FFT magnitude, length `N`.
+/// @note `N` must be a power of two, and `N/2` must not exceed the
+/// device's max work-group size (this single workgroup does the whole
+/// transform) -- there's no multi-work-group decomposition here. See
+/// cufft_interop.hpp for the production FFT path, which has neither
+/// limitation.
 inline std::vector<float> radix2_fft_mag(sycl::queue& q,
                                           const std::vector<float>& re_in,
                                           const std::vector<float>& im_in) {

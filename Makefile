@@ -124,6 +124,18 @@ $(TEST_BUILD)/test_cufft_batch: $(TESTS)/gpu/test_cufft_batch.cpp $(HEADERS) | $
 	$(ACPP) $(ACPP_FLAGS) $(SYCL_TARGET) -I$(SRC) -I$(TESTS) \
 	  $(CUDA_INCLUDES) $(CUDA_LIBS) $< -o $@
 
+# --- Documentation -----------------------------------------------------------
+
+# API reference generated from the Doxygen comments in src/*.hpp (the
+# reusable headers get full @brief/@param/@return docs; the .cpp programs
+# built from them get a @file brief only -- see Doxyfile). Output isn't
+# committed; open build/docs/html/index.html after running this.
+.PHONY: docs
+docs:
+	@command -v doxygen >/dev/null 2>&1 || { echo "doxygen not found -- install it to build docs"; exit 1; }
+	doxygen Doxyfile
+	@echo "docs: open build/docs/html/index.html"
+
 # --- Introspection & cleanup ------------------------------------------------
 
 # Machine-readable one-value queries used by the shell scripts.

@@ -1,6 +1,10 @@
-// Naive O(N^2) DFT magnitude, as a reusable GPU-executed function so it can
-// serve as ground truth for the radix-2 FFT (fft_lib.hpp) in tests, and so
-// 03_dft.cpp's kernel logic can be exercised outside of main().
+/**
+ * @file dft_lib.hpp
+ * @brief Naive O(N^2) DFT magnitude, as a reusable GPU-executed function.
+ *
+ * Serves as ground truth for the radix-2 FFT (fft_lib.hpp) in tests, and
+ * lets 03_dft.cpp's kernel logic be exercised outside of `main()`.
+ */
 #pragma once
 #include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
@@ -8,6 +12,11 @@
 
 namespace dsp {
 
+/// Compute `|DFT(x)|` directly (`O(N^2)`, one GPU thread per output bin, no
+/// windowing) -- a correctness baseline, not meant to be fast.
+/// @param q Queue to run on.
+/// @param x Real-valued input signal, length `N`.
+/// @return DFT magnitude, length `N`.
 inline std::vector<float> naive_dft_mag(sycl::queue& q, const std::vector<float>& x) {
   const size_t N = x.size();
   constexpr float PI = 3.14159265358979323846f;

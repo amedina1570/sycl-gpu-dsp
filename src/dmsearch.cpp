@@ -1,6 +1,12 @@
-// DM search: sweep DM, dedisperse, measure pulse SNR, find best DM.
-// Input: crab_spectrogram.bin (float32 dB, nframes x NFFT).
-// Output: dm_snr.bin (pairs of float32: DM, SNR) + best profile.
+/**
+ * @file dmsearch.cpp
+ * @brief Blind dispersion-measure search: sweep DM, dedisperse, measure
+ * pulse SNR, find the best DM.
+ *
+ * Input: `crab_spectrogram.bin` (float32 dB, nframes x NFFT). Output:
+ * `dm_snr.bin` (pairs of float32: DM, SNR) + best profile. See
+ * docs/TUTORIAL.md §3.1.
+ */
 #include "dsp_math.hpp"
 #include "sycl_dsp_math.hpp"
 #include "crab_example.hpp"

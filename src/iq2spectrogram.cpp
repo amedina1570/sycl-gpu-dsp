@@ -1,10 +1,14 @@
-// iq2spectrogram: single entry point — feed it an IQ file, get a spectrogram PNG.
-//
-// Combines stageA (load/parse) + stageC (windowed batched cuFFT via SYCL/cuFFT
-// interop) + view_spec.py (rendering) into one command. Reads sample rate and
-// center frequency from a SigMF `.sigmf-meta` sidecar when present (falling
-// back to CLI flags / defaults), supports ci16_le and cf32_le IQ, and runs
-// the Python viewer to produce the final PNG.
+/**
+ * @file iq2spectrogram.cpp
+ * @brief Single entry point: feed it an IQ file, get a spectrogram PNG.
+ *
+ * Combines stageA (load/parse) + stageC (windowed batched cuFFT via
+ * SYCL/cuFFT interop) + view_spec.py (rendering) into one command. Reads
+ * sample rate and center frequency from a SigMF `.sigmf-meta` sidecar when
+ * present (falling back to CLI flags / defaults), supports `ci16_le` and
+ * `cf32_le` IQ, and streams arbitrarily large files in bounded chunks. See
+ * docs/TUTORIAL.md §2.4.
+ */
 #include "sigmf_meta.hpp"
 #include "cli_util.hpp"
 #include "sycl_dsp_math.hpp"

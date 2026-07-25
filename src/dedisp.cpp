@@ -1,6 +1,11 @@
-// Incoherent dedispersion of the Crab spectrogram on GPU (SYCL).
-// Input: crab_spectrogram.bin (float32, nframes x NFFT, dB).
-// Output: dedispersed spectrogram + 1D pulse profile (sum over freq).
+/**
+ * @file dedisp.cpp
+ * @brief Incoherent dedispersion of the Crab spectrogram on GPU (SYCL).
+ *
+ * Input: `crab_spectrogram.bin` (float32, nframes x NFFT, dB). Output:
+ * dedispersed spectrogram + 1D pulse profile (sum over freq). See
+ * docs/TUTORIAL.md §3.1.
+ */
 #include "dsp_math.hpp"
 #include "sycl_dsp_math.hpp"
 #include "crab_example.hpp"

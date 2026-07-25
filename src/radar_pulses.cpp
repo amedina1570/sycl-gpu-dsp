@@ -1,15 +1,21 @@
-// radar_pulses: GPU-accelerated pulse-train detection for RADAR-like SigMF
-// IQ captures -- a port of view/view_radar_pulses.py's numeric core
-// (envelope, threshold, edge detection, width/PRI/PRF/duty-cycle) to SYCL,
-// so segments larger than comfortably fit in NumPy can be processed.
-//
-// Reads sample rate / center frequency / datatype from a `.sigmf-meta`
-// sidecar when present (falling back to CLI flags / defaults, same
-// convention as iq2spectrogram.cpp), and writes a JSON sidecar + envelope
-// .bin that view_radar_pulses.py can plot directly (its --json mode)
-// instead of recomputing detection in Python. view_radar_pulses.py keeps
-// working standalone on raw IQ files exactly as it always has -- this is an
-// additional, faster path for longer segments, not a replacement.
+/**
+ * @file radar_pulses.cpp
+ * @brief GPU-accelerated pulse-train detection for RADAR-like SigMF IQ
+ * captures.
+ *
+ * A port of view/view_radar_pulses.py's numeric core (envelope, threshold,
+ * edge detection, width/PRI/PRF/duty-cycle) to SYCL, so segments larger
+ * than comfortably fit in NumPy can be processed.
+ *
+ * Reads sample rate / center frequency / datatype from a `.sigmf-meta`
+ * sidecar when present (falling back to CLI flags / defaults, same
+ * convention as iq2spectrogram.cpp), and writes a JSON sidecar + envelope
+ * `.bin` that view_radar_pulses.py can plot directly (its `--json` mode)
+ * instead of recomputing detection in Python. view_radar_pulses.py keeps
+ * working standalone on raw IQ files exactly as it always has -- this is
+ * an additional, faster path for longer segments, not a replacement. See
+ * docs/TUTORIAL.md §3.2.
+ */
 #include "sigmf_meta.hpp"
 #include "cli_util.hpp"
 #include "dsp_math.hpp"

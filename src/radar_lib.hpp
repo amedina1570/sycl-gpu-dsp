@@ -1,6 +1,11 @@
-// GPU-executed amplitude-envelope + boxcar-smoothing kernels, extracted so
-// radar_pulses.cpp's exact kernel logic can be exercised outside of main()
-// (e.g. by GPU-executed tests), mirroring dft_lib.hpp/fft_lib.hpp.
+/**
+ * @file radar_lib.hpp
+ * @brief GPU-executed amplitude-envelope + boxcar-smoothing kernels.
+ *
+ * Extracted so radar_pulses.cpp's exact kernel logic can be exercised
+ * outside of `main()` (e.g. by GPU-executed tests), mirroring
+ * dft_lib.hpp/fft_lib.hpp.
+ */
 #pragma once
 #include "dsp_math.hpp"
 #include "sycl_util.hpp"
@@ -9,15 +14,21 @@
 
 namespace dsp {
 
-// raw holds interleaved I,Q pairs (raw.size() == 2*nsamp); Raw is int16_t
-// (ci16_le, normalized via decode_sample) or float (cf32_le, passed through).
-// Returns the smoothed envelope, one value per complex sample.
-//
-// Smoothing matches numpy's np.convolve(envelope, ones(w)/w, mode='same')
-// exactly: output[n] averages envelope[n+off-w+1 .. n+off] (off = (w-1)/2),
-// treating samples outside [0, nsamp) as zero -- i.e. it tapers near the
-// edges rather than shrinking the averaging window, same as the reference
-// Python implementation in view_radar_pulses.py.
+/// Compute the smoothed amplitude envelope `|I + jQ|` of a complex IQ
+/// signal, one value per complex sample.
+///
+/// Smoothing matches NumPy's `np.convolve(envelope, ones(w)/w, mode='same')`
+/// exactly: `output[n]` averages `envelope[n+off-w+1 .. n+off]`
+/// (`off = (w-1)/2`), treating samples outside `[0, nsamp)` as zero -- i.e.
+/// it tapers near the edges rather than shrinking the averaging window,
+/// same as the reference Python implementation in view_radar_pulses.py.
+/// @tparam Raw Raw sample type: `int16_t` (`ci16_le`, normalized via
+/// dsp::decode_sample()) or `float` (`cf32_le`, passed through unchanged).
+/// @param q Queue to run on.
+/// @param raw Interleaved I,Q pairs; `raw.size() == 2*nsamp`.
+/// @param smooth_samples Boxcar smoothing window width, in samples.
+/// Values `<= 0` degenerate to a window of 1 (no smoothing).
+/// @return Smoothed envelope, length `nsamp` (empty if `raw` is empty).
 template <typename Raw>
 inline std::vector<float> gpu_smoothed_envelope(sycl::queue& q,
                                                   const std::vector<Raw>& raw,

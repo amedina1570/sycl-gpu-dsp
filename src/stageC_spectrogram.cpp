@@ -1,10 +1,14 @@
-// Stage C: Crab-pulse SigMF -> windowed batched cuFFT -> spectrogram (float32 .bin)
-//
-// Pedagogical build-up step: combines stageA+stageB into one pipeline, but
-// stays fixed-size (whole file loaded, one unbounded batched cuFFT call) and
-// hardcoded to the small Crab dataset. iq2spectrogram.cpp supersedes this
-// for any real file -- same pipeline, but datatype/size agnostic and
-// streamed in bounded chunks (see its own top-of-file comment).
+/**
+ * @file stageC_spectrogram.cpp
+ * @brief Stage C: Crab-pulse SigMF -> windowed batched cuFFT ->
+ * spectrogram (float32 `.bin`).
+ *
+ * Pedagogical build-up step: combines stageA+stageB into one pipeline,
+ * but stays fixed-size (whole file loaded, one unbounded batched cuFFT
+ * call) and hardcoded to the small Crab dataset. iq2spectrogram.cpp
+ * supersedes this for any real file -- same pipeline, but datatype/size
+ * agnostic and streamed in bounded chunks. See docs/TUTORIAL.md §2.3.
+ */
 #include "sycl_dsp_math.hpp"
 #include "dsp_math.hpp"
 #include "crab_example.hpp"

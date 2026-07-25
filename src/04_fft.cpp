@@ -1,12 +1,19 @@
+/**
+ * @file 04_fft.cpp
+ * @brief SYCL fundamentals: local memory, barriers, and a single-workgroup
+ * radix-2 Cooley-Tukey FFT for power-of-two N.
+ *
+ * One workgroup of N/2 work-items cooperates through the whole transform,
+ * synchronizing between butterfly stages with a local barrier. See
+ * docs/TUTORIAL.md Part 1.4 -- and its note on why this isn't what the
+ * production pipeline actually uses (that's cuFFT; see cufft_interop.hpp).
+ */
 #include "fft_lib.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>
 #include <cmath>
 #include <iostream>
 
-// Single-workgroup radix-2 Cooley-Tukey FFT for power-of-two N.
-// One workgroup of N/2 work-items cooperates through the whole transform,
-// synchronizing between butterfly stages with a local barrier.
 int main() {
   constexpr size_t N    = 1024;                 // power of two
   constexpr float  PI   = 3.14159265358979323846f;

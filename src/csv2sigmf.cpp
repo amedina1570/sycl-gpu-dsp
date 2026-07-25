@@ -1,17 +1,23 @@
-// csv2sigmf: convert a vendor CSV I/Q dump (one "<I>,<Q>" integer pair per
-// line, optional header row) into raw SigMF (.sigmf-data + .sigmf-meta), so
-// the rest of this project's tools (iq2spectrogram, radar_pulses, dedisp,
-// dmsearch, ...) can read it unchanged.
-//
-// Built for the NIST TN 2159 "AWS-3 LTE Waveforms" dataset's IQ.csv format
-// (header "I Data,Q Data", signed-integer relative-unit samples, no
-// embedded sample rate/frequency -- hence --fs is required here, unlike the
-// SigMF-native tools which can fall back to a .sigmf-meta sidecar), but
-// works for any CSV in that shape.
-//
-// Reads in large blocks and hand-parses each line (csv_iq.hpp) rather than
-// std::getline + std::stringstream, which would be far too slow at the
-// hundreds-of-millions-of-lines scale this format shows up at.
+/**
+ * @file csv2sigmf.cpp
+ * @brief Convert a vendor CSV I/Q dump into raw SigMF (`.sigmf-data` +
+ * `.sigmf-meta`).
+ *
+ * One `"<I>,<Q>"` integer pair per line, optional header row, so the rest
+ * of this project's tools (iq2spectrogram, radar_pulses, dedisp,
+ * dmsearch, ...) can read it unchanged.
+ *
+ * Built for the NIST TN 2159 "AWS-3 LTE Waveforms" dataset's `IQ.csv`
+ * format (header `"I Data,Q Data"`, signed-integer relative-unit samples,
+ * no embedded sample rate/frequency -- hence `--fs` is required here,
+ * unlike the SigMF-native tools which can fall back to a `.sigmf-meta`
+ * sidecar), but works for any CSV in that shape.
+ *
+ * Reads in large blocks and hand-parses each line (csv_iq.hpp) rather than
+ * `std::getline` + `std::stringstream`, which would be far too slow at the
+ * hundreds-of-millions-of-lines scale this format shows up at. See
+ * docs/TUTORIAL.md §2.5.
+ */
 #include "csv_iq.hpp"
 #include "cli_util.hpp"
 #include <cstdint>

@@ -1,0 +1,45 @@
+# Doxygen config for sycl-gpu-dsp. Minimal on purpose -- every key Doxygen
+# doesn't need to know about keeps its built-in default; run `doxygen -g -`
+# if you ever want to see the full set. Regenerate with `make docs`; output
+# goes to build/docs/html/ (gitignored, like the rest of build/).
+
+PROJECT_NAME           = "sycl-gpu-dsp"
+PROJECT_BRIEF          = "GPU-accelerated I/Q signal processing in SYCL (AdaptiveCpp)"
+OUTPUT_DIRECTORY       = build/docs
+
+# Source: everything under src/, plus the two hand-written docs as
+# additional browsable pages (README as the doxygen front page, the
+# concept/theory walkthrough as a linked page).
+INPUT                  = README.md docs/TUTORIAL.md src
+FILE_PATTERNS          = *.cpp *.hpp *.md
+USE_MDFILE_AS_MAINPAGE = README.md
+RECURSIVE              = NO
+
+# List every declaration Doxygen finds (including the CLI programs' internal
+# helpers, which only carry a @file brief, not full per-function docs) rather
+# than silently hiding anything undocumented -- still useful as a full
+# reference of what exists, even where the prose is thin.
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+EXTRACT_ANON_NSPACES   = YES
+
+# /** First sentence is the brief. Rest is the detailed description. */
+JAVADOC_AUTOBRIEF      = YES
+
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+
+# Graphviz-rendered include graphs. Not a dependency of anything else in
+# this project -- if it's not on PATH when `make docs` runs, install it
+# (e.g. `apt install graphviz`) or set this back to NO; Doxygen still lists
+# file includes and struct members as plain text either way.
+HAVE_DOT               = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+
+# The header-only reusable API (dsp_math.hpp, cli_util.hpp, etc.) is fully
+# documented; the .cpp programs built from it intentionally aren't beyond a
+# @file brief (their internals are CLI/argv-parsing detail, not a public
+# API) -- don't warn about that.
+WARN_IF_UNDOCUMENTED   = NO
+QUIET                  = YES

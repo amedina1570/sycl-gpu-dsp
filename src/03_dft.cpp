@@ -1,3 +1,12 @@
+/**
+ * @file 03_dft.cpp
+ * @brief SYCL fundamentals: the naive O(N^2) DFT as a correctness baseline.
+ *
+ * Computes the DFT magnitude of a pure cosine tone and checks the peak
+ * lands at the expected bin. dsp::naive_dft_mag() (dft_lib.hpp) is the
+ * ground truth 04_fft.cpp's radix-2 FFT is checked against. See
+ * docs/TUTORIAL.md Part 1.3.
+ */
 #include "dft_lib.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>

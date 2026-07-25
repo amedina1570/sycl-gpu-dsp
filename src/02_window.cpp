@@ -1,3 +1,12 @@
+/**
+ * @file 02_window.cpp
+ * @brief SYCL fundamentals: an index-driven `parallel_for` kernel computing
+ * device-side math (a Hann window).
+ *
+ * Applies a Hann window to an all-ones test signal, so the kernel's output
+ * *is* the window shape, and checks it against the known analytic shape.
+ * See docs/TUTORIAL.md Part 1.2 for why window functions matter.
+ */
 #include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>

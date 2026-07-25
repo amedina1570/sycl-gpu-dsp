@@ -1,4 +1,8 @@
-// Stage B: cuFFT via AdaptiveCpp interop, synthetic data, in isolation.
+/**
+ * @file stageB_cufft.cpp
+ * @brief Stage B: cuFFT via AdaptiveCpp interop, synthetic data, in
+ * isolation. See docs/TUTORIAL.md §2.2.
+ */
 #include "cufft_interop.hpp"
 #include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
