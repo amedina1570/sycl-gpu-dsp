@@ -34,7 +34,8 @@ inline float decode_sample(float raw)   { return raw; }
 /// Incoherent-dispersion delay, in whole frames, of frequency channel
 /// `fk_hz` relative to reference frequency `fref_hz`, for a given
 /// dispersion measure. Standard cold-plasma dispersion law:
-/// `t(s) = K * DM * (f_GHz^-2)`, K = #DM_DELAY_CONST_S.
+/// \f[ t = K \cdot DM \cdot \left(\frac{1}{f_{k,GHz}^2} - \frac{1}{f_{ref,GHz}^2}\right) \f]
+/// with K = #DM_DELAY_CONST_S.
 /// @param dm Dispersion measure, pc/cm^3.
 /// @param fk_hz Channel frequency, Hz.
 /// @param fref_hz Reference frequency (delay is zero here), Hz.
@@ -49,9 +50,10 @@ inline int dm_shift_samples(double dm, double fk_hz, double fref_hz, double t_fr
 }
 
 /// Per-channel frame shifts for an NFFT-wide fftshifted spectrogram, where
-/// channel k's frequency is `fc + (k - nfft/2) * fs/nfft` and the reference
-/// is the top of the band (k = nfft/2), matching dedisp.cpp/dmsearch.cpp's
-/// `f_ref` convention.
+/// channel k's frequency is
+/// \f[ f_k = f_c + \left(k - \frac{N_{FFT}}{2}\right)\frac{f_s}{N_{FFT}} \f]
+/// and the reference is the top of the band (\f$k = N_{FFT}/2\f$), matching
+/// dedisp.cpp/dmsearch.cpp's `f_ref` convention.
 /// @param dm Dispersion measure, pc/cm^3.
 /// @param fc_hz Center frequency, Hz.
 /// @param fs_hz Sample rate, Hz.
@@ -75,11 +77,12 @@ struct SnrStats {
   float mean = 0.0f;    ///< Mean of the input values.
   float stddev = 0.0f;  ///< Population standard deviation of the input values.
   float peak = 0.0f;    ///< Maximum of the input values.
-  float snr = 0.0f;     ///< `(peak - median) / stddev`, or 0 if stddev is 0.
+  float snr = 0.0f;     ///< \f$(\mathrm{peak} - \mathrm{median}) / \sigma\f$, or 0 if \f$\sigma = 0\f$.
 };
 
-/// SNR = `(peak - median) / stddev` over a set of per-frame profile values
-/// (linear power, mean-per-channel). Matches dmsearch.cpp's scoring.
+/// \f[ \mathrm{SNR} = \frac{\mathrm{peak} - \mathrm{median}}{\sigma} \f]
+/// over a set of per-frame profile values (linear power, mean-per-channel).
+/// Matches dmsearch.cpp's scoring.
 /// @param values Per-frame profile values; may be empty (returns a
 /// zero-initialized SnrStats).
 /// @return Populated SnrStats.
@@ -107,7 +110,10 @@ inline SnrStats compute_snr(const std::vector<float>& values) {
 }
 
 /// Linear-interpolated percentile, matching `numpy.percentile`'s default
-/// (`'linear'`) method.
+/// (`'linear'`) method: for sorted values of length \f$n\f$ and percentile
+/// \f$p\f$, interpolate at fractional index
+/// \f[ idx = \frac{p}{100}(n - 1) \f]
+/// between `values[floor(idx)]` and `values[ceil(idx)]`.
 /// @param values Sample values (taken by value; sorted internally). Empty
 /// input returns 0.
 /// @param pct Percentile to compute, in [0, 100].
@@ -131,9 +137,11 @@ struct PulseDetection {
   float threshold = 0.0f;       ///< Envelope threshold used to detect edges.
 };
 
-/// Threshold the envelope at `percentile(10) + threshold_frac *
-/// (percentile(99.9) - percentile(10))`, and pair rising/falling edges into
-/// complete pulses. Pulses cut off at either boundary of `envelope` (no
+/// Threshold the envelope at
+/// \f[ T = P_{10} + \alpha \left(P_{99.9} - P_{10}\right) \f]
+/// (\f$P_{10}\f$/\f$P_{99.9}\f$ the 10th/99.9th percentiles, \f$\alpha\f$ =
+/// `threshold_frac`), and pair rising/falling edges into complete pulses.
+/// Pulses cut off at either boundary of `envelope` (no
 /// matching edge) are dropped -- their width/PRI can't be measured
 /// reliably. Matches view_radar_pulses.py's `detect_pulses`.
 /// @param envelope Smoothed amplitude envelope (see radar_lib.hpp's
@@ -188,15 +196,16 @@ struct PulseStats {
   float pulse_width_std_s = 0.0f;   ///< Pulse width standard deviation, seconds.
   float pri_mean_s = 0.0f;   ///< Mean pulse repetition interval, seconds (see #has_pri).
   float pri_std_s = 0.0f;    ///< PRI standard deviation, seconds (see #has_pri).
-  float prf_hz = 0.0f;       ///< Pulse repetition frequency, `1/pri_mean_s` (see #has_pri).
-  float duty_cycle = 0.0f;   ///< `pulse_width_mean_s / pri_mean_s` (see #has_pri).
+  float prf_hz = 0.0f;       ///< Pulse repetition frequency, \f$1/\overline{\mathrm{PRI}}\f$ (see #has_pri).
+  float duty_cycle = 0.0f;   ///< \f$\bar{w} / \overline{\mathrm{PRI}}\f$ (see #has_pri).
   bool has_pri = false;      ///< False when fewer than 2 pulses (PRI needs a gap between two).
 };
 
 /// Pulse width from rising/falling sample indices; PRI from consecutive
-/// rising-edge spacing (undefined below 2 pulses); PRF = `1/mean(PRI)`;
-/// duty cycle = `mean_width/mean_PRI`. Matches view_radar_pulses.py's
-/// `pulse_stats`.
+/// rising-edge spacing (undefined below 2 pulses);
+/// \f$\mathrm{PRF} = 1/\overline{\mathrm{PRI}}\f$;
+/// duty cycle \f$= \bar{w}/\overline{\mathrm{PRI}}\f$. Matches
+/// view_radar_pulses.py's `pulse_stats`.
 /// @param det Detected pulses, as returned by detect_pulses().
 /// @param fs Sample rate, Hz (converts sample counts to seconds).
 /// @return Populated PulseStats; `has_pri` is false (and the PRI/PRF/duty

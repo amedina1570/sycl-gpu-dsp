@@ -29,6 +29,12 @@ JAVADOC_AUTOBRIEF      = YES
 GENERATE_HTML          = YES
 GENERATE_LATEX         = NO
 
+# Render \f$...\f$ / \f[...\f] formulas (the DFT/FFT sums, the dispersion
+# delay law, Hann window, etc.) via MathJax -- client-side JS, no local
+# LaTeX/texlive install needed. Uses the default CDN; set MATHJAX_RELPATH
+# to a vendored copy if these docs ever need to render fully offline.
+USE_MATHJAX            = YES
+
 # Graphviz-rendered include graphs. Not a dependency of anything else in
 # this project -- if it's not on PATH when `make docs` runs, install it
 # (e.g. `apt install graphviz`) or set this back to NO; Doxygen still lists

@@ -14,9 +14,12 @@
 
 namespace dsp {
 
-/// Compute `|FFT(re_in + i*im_in)|` via radix-2 Cooley-Tukey, entirely
-/// within one work-group's local memory (bit-reversal permutation, then
-/// `log2(N)` butterfly stages, each separated by a barrier).
+/// Compute the FFT magnitude of `re_in + i*im_in` via radix-2 Cooley-Tukey,
+/// entirely within one work-group's local memory (bit-reversal permutation,
+/// then \f$\log_2 N\f$ butterfly stages, each separated by a barrier).
+/// Each butterfly combines inputs \f$a, b\f$ with twiddle factor
+/// \f$w = e^{-i 2\pi \cdot pos/m}\f$:
+/// \f[ a' = a + w b, \qquad b' = a - w b \f]
 /// @param q Queue to run on.
 /// @param re_in Real part of the input signal, length `N`.
 /// @param im_in Imaginary part of the input signal, length `N`.

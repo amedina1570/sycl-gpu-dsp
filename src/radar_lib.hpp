@@ -14,14 +14,15 @@
 
 namespace dsp {
 
-/// Compute the smoothed amplitude envelope `|I + jQ|` of a complex IQ
+/// Compute the smoothed amplitude envelope \f$|I + jQ|\f$ of a complex IQ
 /// signal, one value per complex sample.
 ///
-/// Smoothing matches NumPy's `np.convolve(envelope, ones(w)/w, mode='same')`
-/// exactly: `output[n]` averages `envelope[n+off-w+1 .. n+off]`
-/// (`off = (w-1)/2`), treating samples outside `[0, nsamp)` as zero -- i.e.
-/// it tapers near the edges rather than shrinking the averaging window,
-/// same as the reference Python implementation in view_radar_pulses.py.
+/// Smoothing matches NumPy's `np.convolve(envelope, ones(w)/w, mode="same")`
+/// exactly:
+/// \f[ \mathrm{output}[n] = \frac{1}{w}\sum_{k=n+\mathrm{off}-w+1}^{n+\mathrm{off}} \mathrm{envelope}[k], \qquad \mathrm{off} = \left\lfloor\frac{w-1}{2}\right\rfloor \f]
+/// treating samples outside `[0, nsamp)` as zero -- i.e. it tapers near the
+/// edges rather than shrinking the averaging window, same as the reference
+/// Python implementation in view_radar_pulses.py.
 /// @tparam Raw Raw sample type: `int16_t` (`ci16_le`, normalized via
 /// dsp::decode_sample()) or `float` (`cf32_le`, passed through unchanged).
 /// @param q Queue to run on.

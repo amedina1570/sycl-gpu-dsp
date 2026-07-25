@@ -32,10 +32,11 @@ constexpr float POWER_FLOOR = 1e-12f;
 /// sample, e.g. dedispersion shifts that fall off the ends of the recording.
 constexpr float SPECTROGRAM_FLOOR_DB = -120.0f;
 
-/// Cold-plasma dispersion delay constant: `delay[s] = K * DM * f_GHz^-2`,
-/// with the dispersion measure DM in pc/cm^3 and frequency f in GHz.
-/// K = 4.148808e-3 is the standard 1/(2.41e-4 MHz) coefficient expressed
-/// for GHz and seconds.
+/// Cold-plasma dispersion delay constant K in
+/// \f[ \Delta t = K \cdot DM \cdot f_{GHz}^{-2} \f]
+/// with the dispersion measure DM in pc/cm^3 and frequency \f$f\f$ in GHz.
+/// K = 4.148808e-3 is the standard \f$1/(2.41 \times 10^{-4}\,\mathrm{MHz})\f$
+/// coefficient expressed for GHz and seconds.
 constexpr double DM_DELAY_CONST_S = 4.148808e-3;
 
 /// Default STFT FFT size (power of two) for the spectrogram pipeline.

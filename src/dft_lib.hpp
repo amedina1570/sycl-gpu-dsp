@@ -12,8 +12,10 @@
 
 namespace dsp {
 
-/// Compute `|DFT(x)|` directly (`O(N^2)`, one GPU thread per output bin, no
-/// windowing) -- a correctness baseline, not meant to be fast.
+/// Compute \f$|X[k]|\f$ directly, where
+/// \f[ X[k] = \sum_{n=0}^{N-1} x[n]\, e^{-i 2\pi k n / N} \f]
+/// (\f$O(N^2)\f$, one GPU thread per output bin, no windowing) -- a
+/// correctness baseline, not meant to be fast.
 /// @param q Queue to run on.
 /// @param x Real-valued input signal, length `N`.
 /// @return DFT magnitude, length `N`.
