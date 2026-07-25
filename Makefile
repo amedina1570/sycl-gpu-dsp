@@ -1,12 +1,11 @@
 # Portable build for sycl-gpu-dsp.
 #
-# Auto-detects the three things that differ from machine to machine: the acpp
-# (AdaptiveCpp) compiler, the CUDA toolkit, and the GPU compute capability.
-# Override any of them on the command line or in the environment, e.g.
+# Auto-detects the two things that differ from machine to machine: the acpp
+# (AdaptiveCpp) compiler and the CUDA toolkit. Override either on the command
+# line or in the environment, e.g.
 #
 #   make                                   # detect everything, build all programs
 #   make CUDA_PATH=/usr/local/cuda-12.6    # pin a specific CUDA (must match acpp)
-#   make SM_ARCH=sm_80                      # target a different GPU arch
 #   make ACPP=/opt/acpp/bin/acpp            # use a specific acpp
 #   make print-config                       # show what was detected, build nothing
 #   make host-tests                         # build tests that need no GPU/acpp
@@ -28,12 +27,6 @@ CUDA_PATH ?= $(shell d=`command -v nvcc 2>/dev/null`; \
                      if [ -n "$$d" ]; then dirname `dirname $$d`; \
                      else echo /usr/local/cuda; fi)
 
-# GPU arch: ask the driver for the first device's compute capability
-# (e.g. "7.5" -> sm_75); fall back to sm_75 (Turing) if nvidia-smi is absent.
-SM_ARCH ?= $(shell cc=`nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1`; \
-                   if [ -n "$$cc" ]; then echo sm_`echo $$cc | tr -d '.'`; \
-                   else echo sm_75; fi)
-
 CXX ?= g++
 
 # Fail with a clear message (instead of a cryptic shell error) if a rule that
@@ -49,14 +42,16 @@ TESTS      := tests
 BUILD      := build
 TEST_BUILD := $(BUILD)/tests
 
-ACPP_FLAGS    := -O2
+ACPP_FLAGS    := -O3
 SYCL_TARGET   := --acpp-targets=generic
-CUDA_TARGET   := --acpp-targets=cuda:$(SM_ARCH)
 CUDA_INCLUDES := -I$(CUDA_PATH)/include
 CUDA_LIBS     := -L$(CUDA_PATH)/lib64 -lcufft -lcudart
 HOST_FLAGS    := -O1 -std=c++17 -I$(SRC) -I$(TESTS)
 
-# Program groups by how they must be compiled.
+# Every program compiles through acpp's `generic` target (JIT, fastest and
+# most portable -- see doc/performance.md in the AdaptiveCpp repo). CUDA_PROGS
+# differ only in that they call cuFFT directly and so need cufft/cudart on
+# the include/link line; that's independent of the SYCL compilation target.
 GENERIC_PROGS := 01_usm 02_window 03_dft 04_fft dedisp dmsearch
 CUDA_PROGS    := stageB_cufft stageC_spectrogram iq2spectrogram
 HOST_PROGS    := stageA_load
@@ -83,7 +78,7 @@ $(GENERIC_BINS): $(BUILD)/%: $(SRC)/%.cpp $(HEADERS) | $(BUILD)
 
 $(CUDA_BINS): $(BUILD)/%: $(SRC)/%.cpp $(HEADERS) | $(BUILD)
 	$(require-acpp)
-	$(ACPP) $(ACPP_FLAGS) $(CUDA_TARGET) -I$(SRC) $< -o $@ \
+	$(ACPP) $(ACPP_FLAGS) $(SYCL_TARGET) -I$(SRC) $< -o $@ \
 	  $(CUDA_INCLUDES) $(CUDA_LIBS)
 
 $(HOST_BINS): $(BUILD)/%: $(SRC)/%.cpp $(HEADERS) | $(BUILD)
@@ -116,21 +111,19 @@ $(TEST_BUILD)/test_fft_vs_dft $(TEST_BUILD)/test_window_kernel: \
 
 $(TEST_BUILD)/test_cufft_batch: $(TESTS)/gpu/test_cufft_batch.cpp $(HEADERS) | $(TEST_BUILD)
 	$(require-acpp)
-	$(ACPP) $(ACPP_FLAGS) $(CUDA_TARGET) -I$(SRC) -I$(TESTS) \
+	$(ACPP) $(ACPP_FLAGS) $(SYCL_TARGET) -I$(SRC) -I$(TESTS) \
 	  $(CUDA_INCLUDES) $(CUDA_LIBS) $< -o $@
 
 # --- Introspection & cleanup ------------------------------------------------
 
 # Machine-readable one-value queries used by the shell scripts.
-.PHONY: print-acpp print-cuda-path print-sm-arch print-config
+.PHONY: print-acpp print-cuda-path print-config
 print-acpp:      ; @echo $(ACPP)
 print-cuda-path: ; @echo $(CUDA_PATH)
-print-sm-arch:   ; @echo $(SM_ARCH)
 
 print-config:
 	@echo "acpp       = $(ACPP)"
 	@echo "CUDA_PATH  = $(CUDA_PATH)"
-	@echo "SM_ARCH    = $(SM_ARCH)"
 	@echo "CXX        = $(CXX)"
 
 .PHONY: clean

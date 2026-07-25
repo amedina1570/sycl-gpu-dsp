@@ -110,18 +110,19 @@ commands work on any machine with the toolchain below — no paths to edit:
     make                  # build every program into build/
     make iq2spectrogram   # just the spectrogram pipeline
     make host-tests       # tests that need no GPU/acpp
-    make print-config     # show the detected acpp / CUDA / GPU arch
+    make print-config     # show the detected acpp / CUDA path
     make clean
 
-The Makefile auto-detects three machine-specific things and lets you override
-any of them (they must be consistent with each other — in particular
-`CUDA_PATH` has to be the CUDA release your AdaptiveCpp was built against):
+The Makefile auto-detects two machine-specific things and lets you override
+either of them (they must be consistent with each other — in particular
+`CUDA_PATH` has to be the CUDA release your AdaptiveCpp was built against).
+Everything compiles through acpp's `generic` (JIT) target, so there's no GPU
+arch to pin ahead of time:
 
 | Variable | Detected from | Override example |
 |----------|---------------|------------------|
 | `ACPP`      | `acpp` on `PATH`, else `$ACPP_HOME/bin` (default `~/adaptivecpp`) | `make ACPP=/opt/acpp/bin/acpp` |
 | `CUDA_PATH` | the `nvcc` on `PATH`, else `/usr/local/cuda` | `make CUDA_PATH=/usr/local/cuda-12.6` |
-| `SM_ARCH`   | `nvidia-smi` compute capability, else `sm_75` | `make SM_ARCH=sm_80` |
 
 `source env/acpp-env.sh` first if `acpp` isn't already on your `PATH` (it
 adds `$ACPP_HOME/bin`; override `ACPP_HOME` for a non-default install).
@@ -131,8 +132,9 @@ adds `$ACPP_HOME/bin`; override `ACPP_HOME` for a non-default install).
 - **Linux** (native or WSL2) — the examples below assume Ubuntu 24.04. On
   WSL2, the NVIDIA driver lives on the Windows side; install the CUDA
   *toolkit* (not another driver) inside WSL
-- **NVIDIA GPU + driver** with a CUDA compute capability matching your
-  target (this repo defaults to `sm_75`, Turing); adjust for your card
+- **NVIDIA GPU + driver** — no specific compute capability to target ahead
+  of time; the build uses acpp's `generic` JIT target, which compiles for
+  whatever device it finds at runtime
 - **CUDA Toolkit** (`nvcc`, `cufft`, `cudart`) — developed against 12.6
 - **[AdaptiveCpp](https://github.com/AdaptiveCpp/AdaptiveCpp)** built
   against LLVM 18 + CUDA 12.6, providing the `acpp` SYCL compiler

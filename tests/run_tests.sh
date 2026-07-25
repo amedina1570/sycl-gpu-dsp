@@ -2,7 +2,7 @@
 # Build and run the unit test suite. Compilation is delegated to the Makefile
 # (which auto-detects acpp / CUDA / GPU arch); this script just builds the test
 # binaries and tallies pass/fail. Override detection the same way as make, e.g.
-# CUDA_PATH=... SM_ARCH=... ./tests/run_tests.sh.
+# CUDA_PATH=... ./tests/run_tests.sh.
 #
 # Host tests (tests/host/*.cpp) are plain C++, no SYCL/GPU required.
 # GPU tests (tests/gpu/*.cpp) exercise real SYCL/cuFFT kernels and need the
