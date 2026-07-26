@@ -3692,17 +3692,26 @@ String& String::operator+=(const String& other) {
             data.capacity *= 2;
             if(data.capacity <= total_size)
                 data.capacity = total_size + 1;
+            // cache append source in case of self-append / aliasing
+            const char* append_src = other.c_str();
+            char*       alias_copy = nullptr;
+            if(append_src == data.ptr) {
+                alias_copy = new char[other_size + 1];
+                memcpy(alias_copy, append_src, other_size + 1);
+                append_src = alias_copy;
+            }
             // alloc new chunk
             char* temp = new char[data.capacity];
             // copy current data to new location before releasing it
             memcpy(temp, data.ptr, my_old_size); // skip the +1 ('\0') for speed
             // release old chunk
             delete[] data.ptr;
+            // transfer the rest of the data into the new chunk
+            memcpy(temp + my_old_size, append_src, other_size + 1);
+            delete[] alias_copy;
             // update the rest of the union members
             data.size = total_size;
             data.ptr  = temp;
-            // transfer the rest of the data
-            memcpy(data.ptr + my_old_size, other.c_str(), other_size + 1);
         }
     }
 
