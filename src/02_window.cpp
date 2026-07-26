@@ -1,3 +1,13 @@
+/**
+ * @file 02_window.cpp
+ * @brief SYCL fundamentals: an index-driven `parallel_for` kernel computing
+ * device-side math (a Hann window).
+ *
+ * Applies a Hann window to an all-ones test signal, so the kernel's output
+ * *is* the window shape, and checks it against the known analytic shape.
+ * See docs/TUTORIAL.md Part 1.2 for why window functions matter.
+ */
+#include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>
 #include <cmath>
@@ -7,7 +17,19 @@ int main() {
   constexpr size_t N = 4096;                 // frame length
   constexpr float PI = 3.14159265358979323846f;
 
-  sycl::queue q{sycl::property::queue::in_order{}};
+  // Async exceptions (e.g. a failed copy/kernel) are logged instead of being
+  // silently dropped -- q.wait() alone does not rethrow them.
+  sycl::queue q{
+      [](sycl::exception_list exceptions) {
+        for (const std::exception_ptr& e : exceptions) {
+          try {
+            std::rethrow_exception(e);
+          } catch (const sycl::exception& ex) {
+            std::cerr << "asynchronous SYCL exception: " << ex.what() << "\n";
+          }
+        }
+      },
+      sycl::property::queue::in_order{}};
   std::cout << "Device: "
             << q.get_device().get_info<sycl::info::device::name>() << "\n";
 
@@ -15,8 +37,8 @@ int main() {
   std::vector<float> h_sig(N, 1.0f);
   std::vector<float> h_out(N, 0.0f);
 
-  float* d_sig = sycl::malloc_device<float>(N, q);
-  float* d_out = sycl::malloc_device<float>(N, q);
+  float* d_sig = sycl_util::malloc_device_checked<float>(N, q, "d_sig");
+  float* d_out = sycl_util::malloc_device_checked<float>(N, q, "d_out");
 
   q.memcpy(d_sig, h_sig.data(), N * sizeof(float));
 
@@ -47,5 +69,5 @@ int main() {
 
   sycl::free(d_sig, q);
   sycl::free(d_out, q);
-  return 0;
+  return (ends_zero && center_one && symmetric) ? 0 : 1;
 }

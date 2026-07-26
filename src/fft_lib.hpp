@@ -1,15 +1,34 @@
-// Single-workgroup radix-2 Cooley-Tukey FFT magnitude, as a reusable
-// GPU-executed function extracted from 04_fft.cpp so its exact kernel logic
-// can be unit tested (e.g. cross-checked against dft_lib.hpp's naive DFT).
+/**
+ * @file fft_lib.hpp
+ * @brief Single-workgroup radix-2 Cooley-Tukey FFT magnitude, as a reusable
+ * GPU-executed function.
+ *
+ * Extracted from 04_fft.cpp so its exact kernel logic can be unit tested
+ * (e.g. cross-checked against dft_lib.hpp's naive DFT).
+ */
 #pragma once
+#include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <cmath>
 #include <vector>
 
 namespace dsp {
 
-// N must be a power of two and N/2 must not exceed the device's max
-// work-group size (single workgroup does the whole transform).
+/// Compute the FFT magnitude of `re_in + i*im_in` via radix-2 Cooley-Tukey,
+/// entirely within one work-group's local memory (bit-reversal permutation,
+/// then \f$\log_2 N\f$ butterfly stages, each separated by a barrier).
+/// Each butterfly combines inputs \f$a, b\f$ with twiddle factor
+/// \f$w = e^{-i 2\pi \cdot pos/m}\f$:
+/// \f[ a' = a + w b, \qquad b' = a - w b \f]
+/// @param q Queue to run on.
+/// @param re_in Real part of the input signal, length `N`.
+/// @param im_in Imaginary part of the input signal, length `N`.
+/// @return FFT magnitude, length `N`.
+/// @note `N` must be a power of two, and `N/2` must not exceed the
+/// device's max work-group size (this single workgroup does the whole
+/// transform) -- there's no multi-work-group decomposition here. See
+/// cufft_interop.hpp for the production FFT path, which has neither
+/// limitation.
 inline std::vector<float> radix2_fft_mag(sycl::queue& q,
                                           const std::vector<float>& re_in,
                                           const std::vector<float>& im_in) {
@@ -18,9 +37,9 @@ inline std::vector<float> radix2_fft_mag(sycl::queue& q,
   constexpr float PI = 3.14159265358979323846f;
 
   std::vector<float> mag(N, 0.0f);
-  float* d_re  = sycl::malloc_device<float>(N, q);
-  float* d_im  = sycl::malloc_device<float>(N, q);
-  float* d_mag = sycl::malloc_device<float>(N, q);
+  float* d_re  = sycl_util::malloc_device_checked<float>(N, q, "d_re");
+  float* d_im  = sycl_util::malloc_device_checked<float>(N, q, "d_im");
+  float* d_mag = sycl_util::malloc_device_checked<float>(N, q, "d_mag");
   q.memcpy(d_re, re_in.data(), N * sizeof(float));
   q.memcpy(d_im, im_in.data(), N * sizeof(float));
 

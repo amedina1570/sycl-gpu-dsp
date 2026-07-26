@@ -57,3 +57,10 @@ TEST_CASE("chunk_sample_count covers exactly the hop-spaced frame range") {
   CHECK(cli::chunk_sample_count(5, 2048, 8192) == 16384);
   CHECK(cli::chunk_sample_count(2730, 2048, 8192) == 5597184);
 }
+
+TEST_CASE("chunk_start_sample is exactly f0*hop, not off by any constant") {
+  CHECK(cli::chunk_start_sample(0, 2048) == 0);
+  CHECK(cli::chunk_start_sample(1, 2048) == 2048);
+  CHECK(cli::chunk_start_sample(2730, 2048) == 5591040);
+  CHECK(cli::chunk_start_sample(989, 42) == 41538);
+}

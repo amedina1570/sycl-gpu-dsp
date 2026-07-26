@@ -1,19 +1,31 @@
-// Naive O(N^2) DFT magnitude, as a reusable GPU-executed function so it can
-// serve as ground truth for the radix-2 FFT (fft_lib.hpp) in tests, and so
-// 03_dft.cpp's kernel logic can be exercised outside of main().
+/**
+ * @file dft_lib.hpp
+ * @brief Naive O(N^2) DFT magnitude, as a reusable GPU-executed function.
+ *
+ * Serves as ground truth for the radix-2 FFT (fft_lib.hpp) in tests, and
+ * lets 03_dft.cpp's kernel logic be exercised outside of `main()`.
+ */
 #pragma once
+#include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>
 
 namespace dsp {
 
+/// Compute \f$|X[k]|\f$ directly, where
+/// \f[ X[k] = \sum_{n=0}^{N-1} x[n]\, e^{-i 2\pi k n / N} \f]
+/// (\f$O(N^2)\f$, one GPU thread per output bin, no windowing) -- a
+/// correctness baseline, not meant to be fast.
+/// @param q Queue to run on.
+/// @param x Real-valued input signal, length `N`.
+/// @return DFT magnitude, length `N`.
 inline std::vector<float> naive_dft_mag(sycl::queue& q, const std::vector<float>& x) {
   const size_t N = x.size();
   constexpr float PI = 3.14159265358979323846f;
 
   std::vector<float> mag(N, 0.0f);
-  float* d_x   = sycl::malloc_device<float>(N, q);
-  float* d_mag = sycl::malloc_device<float>(N, q);
+  float* d_x   = sycl_util::malloc_device_checked<float>(N, q, "d_x");
+  float* d_mag = sycl_util::malloc_device_checked<float>(N, q, "d_mag");
   q.memcpy(d_x, x.data(), N * sizeof(float));
 
   q.parallel_for(sycl::range<1>{N}, [=](sycl::id<1> idx) {

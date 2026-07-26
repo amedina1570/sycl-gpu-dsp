@@ -1,0 +1,17 @@
+name: host tests
+
+# Runs the GPU-free half of the suite (tests/host/*.cpp, plain g++) on every
+# push and PR. The GPU half (tests/gpu/*.cpp) needs acpp + a CUDA device and
+# isn't covered here -- run `./tests/run_tests.sh` locally for that.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run host tests
+        run: ./tests/run_tests.sh --host

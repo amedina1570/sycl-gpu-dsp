@@ -9,6 +9,11 @@ local memory) through a hand-written FFT and cuFFT interop. A worked
 radio-astronomy example — interstellar dedispersion of a Crab pulsar giant
 pulse — demonstrates the pipeline end-to-end on a real capture.
 
+**New to the project?** [docs/TUTORIAL.md](docs/TUTORIAL.md) walks through
+the SYCL/GPU concepts and the DSP theory behind every tool here, in the
+same order the repository is organized — start there if you want to
+understand *why*, not just *how to run it*.
+
 ## Highlights
 
 - USM memory management, in-order queues, cooperative work-items, local memory
@@ -18,6 +23,8 @@ pulse — demonstrates the pipeline end-to-end on a real capture.
   streamed in bounded chunks so file size isn't limited by host/GPU memory
 - A worked example built on top: incoherent dedispersion and a blind
   **dispersion-measure (DM) search**, applied to a pulsar recording
+- GPU-accelerated **RADAR pulse-train detection** (width/PRI/PRF/duty
+  cycle) for pulsed captures
 
 ## Quick start: IQ file -> spectrogram image
 
@@ -26,7 +33,7 @@ Python viewer into one command: feed it a SigMF `ci16_le`/`cf32_le` IQ file,
 get a spectrogram PNG back. Sample rate, center frequency, and datatype are
 auto-read from a `.sigmf-meta` sidecar when present.
 
-    make iq2spectrogram        # auto-detects acpp, CUDA, and your GPU's arch
+    make iq2spectrogram        # auto-detects acpp and CUDA
 
     ./build/iq2spectrogram path/to/recording.sigmf-data
     # -> writes <stem>_spectrogram.{bin,json,png} next to your working directory
@@ -53,6 +60,29 @@ slower. The viewer (`view/view_spec.py`) memory-maps the `.bin` and
 max-hold-decimates it down to the figure's pixel width instead of loading it
 whole, so plotting a huge spectrogram doesn't itself blow out RAM.
 
+### From a CSV capture
+
+Some test equipment exports I/Q as CSV instead of SigMF: a header row
+followed by one `<I>,<Q>` integer pair per line (this is the format the
+[NIST TN 2159](https://doi.org/10.6028/NIST.TN.2159) AWS-3 LTE waveform
+dataset ships in). `csv2sigmf` converts one into a `.sigmf-data`/
+`.sigmf-meta` pair that every other tool here then reads unchanged. It
+streams the file in large blocks with a hand-rolled parser (not
+`std::getline`/`std::stringstream`) so it stays fast at hundreds of
+millions of lines — tens of seconds for a multi-GB file rather than tens of
+minutes.
+
+    make csv2sigmf
+    ./build/csv2sigmf path/to/IQ.csv --fs 61.44e6 -o recording
+    # -> writes recording.sigmf-data and recording.sigmf-meta
+
+    ./build/iq2spectrogram recording.sigmf-data   # auto-reads the .sigmf-meta
+
+`--fs` is required (the CSV has no embedded sample rate); `--fc` defaults
+to 0 (pass `--fc HZ` if you know the exact center frequency). `--datatype`
+defaults to `ci16_le` (values must fit a signed 16-bit range — pass
+`--datatype cf32_le` if not).
+
 ### Quick-look: FFT + time domain + I/Q
 
 For sanity-checking a capture without running the full spectrogram
@@ -64,6 +94,32 @@ auto-detection as `iq2spectrogram`.
     python3 view/view_iq_snapshot.py path/to/recording.sigmf-data \
       --offset 0 --nsamp 4096
     # -> writes <stem>_snapshot.png
+
+### RF signal characterization: Welch PSD, occupied bandwidth, noise floor
+
+For continuous RF signals (as opposed to the pulsed captures below),
+`view/view_iq_snapshot.py`'s single windowed FFT is a noisy spectral
+estimate. `view/view_welch.py` instead averages many overlapping
+periodograms (`scipy.signal.welch`) over a longer segment for a much
+cleaner power spectral density, and reports a numeric summary alongside
+the plot: noise floor, peak, and an occupied-bandwidth estimate (the
+contiguous region around the peak that stays within `--obw-down-db` of
+it, default 10 dB).
+
+    python3 view/view_welch.py path/to/recording.sigmf-data --duration 20e-3
+    # -> writes <stem>_welch.png and <stem>_welch.json
+
+If the peak keeps landing on a narrow spur or CW tone (LO leakage, a
+calibration signal, ...) instead of a wider signal you actually care about
+elsewhere in the band, add `--obw-smooth-khz 100` (or similar) to smooth
+the search before peak-finding — but leave it at the default (0, disabled)
+when the signal of interest genuinely is narrowband, where smoothing would
+dilute its own peak into the noise floor. Validated against the real NIST
+TN 2159 LTE capture used to validate `csv2sigmf`/`iq2spectrogram`: with
+smoothing disabled the peak correctly lands on an isolated LO-leakage-like
+spur off to one side of the band; with `--obw-smooth-khz 200` it correctly
+finds the much wider (~10 MHz within a -10 dB threshold), lower-amplitude
+PUSCH channel instead.
 
 ### RADAR-like pulse trains
 
@@ -80,6 +136,19 @@ envelope is what actually shows the pulse train.
     python3 view/view_radar_pulses.py path/to/recording.sigmf-data \
       --duration 5e-3
     # -> writes <stem>_radar.png and <stem>_radar.json (extracted parameters)
+
+For longer segments than comfortably fit in NumPy, `radar_pulses` is a
+GPU-accelerated port of the same detection logic (envelope + boxcar
+smoothing on SYCL, thresholding/edge-pairing/stats on host), same CLI
+surface, same `.sigmf-meta` auto-detection:
+
+    make radar_pulses
+    ./build/radar_pulses path/to/recording.sigmf-data --duration 5e-3
+    # -> writes <stem>_radar.json and <stem>_radar_envelope.bin
+
+    python3 view/view_radar_pulses.py <stem>_radar.json
+    # -> plots from the precomputed result instead of recomputing in NumPy
+    #    (re-reads only a small I/Q slice from the original file)
 
 ## Worked example: Crab pulsar giant pulse
 
@@ -102,6 +171,7 @@ Data: Crab giant pulse, Stichting CAMRAS / M. Fine & T. J. Dijkema,
 Zenodo DOI [10.5281/zenodo.13143544](https://doi.org/10.5281/zenodo.13143544),
 CC BY-SA 4.0. Not included in this repo — download separately.
 
+<a name="building"></a>
 ## Building
 
 Everything builds through a single auto-detecting Makefile, so the same
@@ -110,45 +180,40 @@ commands work on any machine with the toolchain below — no paths to edit:
     make                  # build every program into build/
     make iq2spectrogram   # just the spectrogram pipeline
     make host-tests       # tests that need no GPU/acpp
-    make print-config     # show the detected acpp / CUDA / GPU arch
+    make print-config     # show the detected acpp / CUDA path
     make clean
 
-The Makefile auto-detects three machine-specific things and lets you override
-any of them (they must be consistent with each other — in particular
-`CUDA_PATH` has to be the CUDA release your AdaptiveCpp was built against):
+The Makefile auto-detects two machine-specific things and lets you override
+either of them (they must be consistent with each other — in particular
+`CUDA_PATH` has to be the CUDA release your AdaptiveCpp was built against).
+Everything compiles through acpp's `generic` (JIT) target, so there's no GPU
+arch to pin ahead of time:
 
 | Variable | Detected from | Override example |
 |----------|---------------|------------------|
 | `ACPP`      | `acpp` on `PATH`, else `$ACPP_HOME/bin` (default `~/adaptivecpp`) | `make ACPP=/opt/acpp/bin/acpp` |
 | `CUDA_PATH` | the `nvcc` on `PATH`, else `/usr/local/cuda` | `make CUDA_PATH=/usr/local/cuda-12.6` |
-| `SM_ARCH`   | `nvidia-smi` compute capability, else `sm_75` | `make SM_ARCH=sm_80` |
 
 `source env/acpp-env.sh` first if `acpp` isn't already on your `PATH` (it
 adds `$ACPP_HOME/bin`; override `ACPP_HOME` for a non-default install).
 
 ## Software requirements
 
-- **Linux** (native or WSL2) — the examples below assume Ubuntu 24.04
-- **NVIDIA GPU + driver** with a CUDA compute capability matching your
-  target (this repo defaults to `sm_75`, Turing); adjust for your card
+- **Linux** (native or WSL2) — the examples below assume Ubuntu 24.04. On
+  WSL2, the NVIDIA driver lives on the Windows side; install the CUDA
+  *toolkit* (not another driver) inside WSL
+- **NVIDIA GPU + driver** — no specific compute capability to target ahead
+  of time; the build uses acpp's `generic` JIT target, which compiles for
+  whatever device it finds at runtime
 - **CUDA Toolkit** (`nvcc`, `cufft`, `cudart`) — developed against 12.6
 - **[AdaptiveCpp](https://github.com/AdaptiveCpp/AdaptiveCpp)** built
   against LLVM 18 + CUDA 12.6, providing the `acpp` SYCL compiler
 - **Python 3** with `numpy` and `matplotlib` — only needed to render
-  spectrogram/dedispersion/DM-search PNGs via `view/*.py`
+  spectrogram/dedispersion/DM-search PNGs via `view/*.py` (`scipy` is
+  additionally needed for `view/view_welch.py`)
 - **g++** with C++17 support — only needed to build the host-side unit
   tests (`tests/host/`); GPU tests and all `acpp`-compiled programs don't
   need it
-
-## Build environment
-
-- WSL2 (Ubuntu 24.04), NVIDIA RTX 2070 (Turing, sm_75)
-- AdaptiveCpp built against LLVM 18 + CUDA 12.6
-- NVIDIA driver on Windows; CUDA toolkit (not driver) inside WSL
-
-Activate the toolchain:
-
-    source env/acpp-env.sh
 
 ## Programs
 
@@ -156,13 +221,14 @@ Activate the toolchain:
 
 | File | Description |
 |------|-------------|
+| `src/csv2sigmf.cpp`     | Converts a vendor CSV I/Q dump into `.sigmf-data`/`.sigmf-meta`, streamed for hundreds-of-millions-of-lines files |
 | `src/stageA_load.cpp`   | SigMF `ci16_le` loader + sanity stats |
 | `src/stageB_cufft.cpp`  | cuFFT interop skeleton (synthetic data) |
 | `src/stageC_spectrogram.cpp` | Fixed-size demo pipeline: IQ -> windowed batched cuFFT -> spectrogram |
 | `src/iq2spectrogram.cpp` | **Combined CLI**: any IQ file in -> spectrogram PNG out, streamed in bounded chunks (stages A+C+viewer) |
 | `view/view_spec.py`     | Matplotlib spectrogram viewer, memory-maps + downsamples large `.bin` output |
 | `view/view_iq_snapshot.py` | Quick-look plot (FFT spectrum, time-domain I/Q, I/Q scatter) for a short segment of any SigMF IQ file |
-| `view/view_radar_pulses.py` | Pulse-train analysis for RADAR-like signals: detects pulses on the envelope, extracts width/PRI/PRF/duty cycle |
+| `view/view_welch.py`    | Welch PSD estimate + noise floor/occupied-bandwidth summary for a segment of any SigMF IQ file |
 
 **SYCL fundamentals** (the building blocks the pipeline above is written from):
 
@@ -181,25 +247,50 @@ Activate the toolchain:
 | `src/dmsearch.cpp`      | Blind DM search maximizing pulse SNR |
 | `view/view_dedisp.py`, `view/view_dmsearch.py` | Matplotlib viewers for the dedispersion/DM-search outputs |
 
+**Worked example: RADAR pulse-train detection**:
+
+| File | Description |
+|------|-------------|
+| `src/radar_pulses.cpp`  | GPU-accelerated envelope + boxcar smoothing (SYCL), threshold/edge-detection/stats (host); width/PRI/PRF/duty cycle |
+| `view/view_radar_pulses.py` | Matplotlib viewer -- either all-NumPy standalone on a raw IQ file, or plots `radar_pulses`' precomputed `.json`/`.bin` output |
+
 ## Compiling
 
-Build any single program by name — the Makefile knows which need only the
-generic SYCL target (`01_usm`, …, `dedisp`, `dmsearch`) and which need the
-CUDA target plus a cuFFT link (`stageB_cufft`, `stageC_spectrogram`,
+Build any single program by name — every program compiles through the same
+`generic` SYCL target; the Makefile just also links `cufft`/`cudart` for the
+three that call cuFFT directly (`stageB_cufft`, `stageC_spectrogram`,
 `iq2spectrogram`):
 
     make build/01_usm
     make build/stageC_spectrogram
 
 See `make print-config` for the flags it resolved, and the [Building](#building)
-section above for overriding the detected acpp / CUDA path / GPU arch.
+section above for overriding the detected acpp / CUDA path.
+
+## API reference
+
+The reusable headers in `src/*.hpp` (dsp_math.hpp, cli_util.hpp,
+sigmf_meta.hpp, dft_lib.hpp/fft_lib.hpp/radar_lib.hpp, etc.) carry full
+[Doxygen](https://www.doxygen.nl/) comments; the `.cpp` programs built from
+them carry a `@file` brief. Generate the browsable HTML reference with:
+
+    make docs
+    # -> open build/docs/html/index.html
+
+(Needs `doxygen` and `dot` (Graphviz), both on `PATH` -- the latter renders
+each file's include graph; set `HAVE_DOT = NO` in `Doxyfile` to skip it if
+you don't want the dependency.) The generated site also includes this
+README and [docs/TUTORIAL.md](docs/TUTORIAL.md) as
+browsable pages.
 
 ## Testing
 
-Shared host-side logic (SigMF metadata parsing, CLI validation, dispersion
-math, SNR scoring) and GPU kernels (Hann window, radix-2 FFT vs. naive DFT,
-batched cuFFT interop) are split into reusable headers in `src/` and covered
-by a [doctest](https://github.com/doctest/doctest)-based suite in `tests/`:
+Shared host-side logic (SigMF metadata parsing, CSV line parsing, CLI
+validation, dispersion math, SNR scoring, pulse-train detection/stats) and
+GPU kernels (Hann window, radix-2 FFT vs. naive DFT, batched cuFFT interop,
+pulse envelope + smoothing) are split into reusable headers in `src/` and
+covered by a [doctest](https://github.com/doctest/doctest)-based suite in
+`tests/`:
 
     ./tests/run_tests.sh          # host tests + GPU tests (needs acpp + GPU)
     ./tests/run_tests.sh --host   # host tests only, no acpp/GPU required
@@ -211,13 +302,40 @@ on the GPU, matching the compile flags used above.
 `tests/test_chunking.sh` is a separate end-to-end smoke test for
 `iq2spectrogram`'s chunked/streaming processing (large-file support): it
 generates a synthetic IQ file, runs it once with the default `--chunk-mb`
-and once forced into many small chunks, and checks the two runs produce
+and once forced into many small chunks, and checks that the two runs produce
 byte-identical `.bin` output, that the recovered tone lands in the expected
-bin, and that `view_spec.py` can plot the result. It confirms chunking
-doesn't change *what* gets computed, not that the DSP math itself is
-correct — that's what the doctest GPU suite above is for.
+bin, that a handful of frames match an independent numpy computation of the
+same windowed FFT (straight from the raw file, bypassing the chunking logic
+entirely), and that `view_spec.py` can plot the result. Byte-identical
+wide-vs-narrow chunking only proves the two runs agree with *each other*; a
+bug that shifts every chunk's read position by the same fixed offset would
+affect both equally and slip through undetected by any spectrogram-based
+check — magnitude spectra are shift-invariant, so that specific bug class is
+instead caught by a plain unit test on the seek arithmetic
+(`chunk_start_sample` in `tests/host/test_cli_util.cpp`).
 
     ./tests/test_chunking.sh      # needs acpp + GPU, ~1-2 min
+
+`tests/test_radar_pulses.sh` is the equivalent end-to-end smoke test for
+`radar_pulses`: it synthesizes a rectangular-envelope pulse train (known
+PRI/width) as a complex-baseband IQ file, runs `radar_pulses` on it, checks
+the reported width/PRI/PRF/duty-cycle against the known ground truth,
+cross-checks against the same file run through the all-NumPy
+`view_radar_pulses.py` path (two independent implementations should agree),
+and confirms `view_radar_pulses.py` can plot the precomputed `.json` result
+without error.
+
+    ./tests/test_radar_pulses.sh  # needs acpp + GPU, numpy; ~10 s
+
+`tests/test_csv2sigmf.sh` is the equivalent end-to-end smoke test for
+`csv2sigmf`: it writes a synthetic vendor-style CSV (a known tone, as plain
+text), converts it, and confirms `iq2spectrogram` recovers the tone from
+the converted `.sigmf-data` with no extra steps — i.e. the two tools'
+output/input actually line up. It also checks that a malformed row and an
+out-of-range value are both rejected with a clear error instead of silently
+producing corrupt output.
+
+    ./tests/test_csv2sigmf.sh     # needs acpp + GPU, numpy; ~10 s
 
 ## License
 

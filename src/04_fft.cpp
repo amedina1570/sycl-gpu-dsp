@@ -1,18 +1,37 @@
+/**
+ * @file 04_fft.cpp
+ * @brief SYCL fundamentals: local memory, barriers, and a single-workgroup
+ * radix-2 Cooley-Tukey FFT for power-of-two N.
+ *
+ * One workgroup of N/2 work-items cooperates through the whole transform,
+ * synchronizing between butterfly stages with a local barrier. See
+ * docs/TUTORIAL.md Part 1.4 -- and its note on why this isn't what the
+ * production pipeline actually uses (that's cuFFT; see cufft_interop.hpp).
+ */
 #include "fft_lib.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>
 #include <cmath>
 #include <iostream>
 
-// Single-workgroup radix-2 Cooley-Tukey FFT for power-of-two N.
-// One workgroup of N/2 work-items cooperates through the whole transform,
-// synchronizing between butterfly stages with a local barrier.
 int main() {
   constexpr size_t N    = 1024;                 // power of two
   constexpr float  PI   = 3.14159265358979323846f;
   constexpr int    K0   = 64;                    // input tone bin
 
-  sycl::queue q{sycl::property::queue::in_order{}};
+  // Async exceptions (e.g. a failed copy/kernel) are logged instead of being
+  // silently dropped -- q.wait() alone does not rethrow them.
+  sycl::queue q{
+      [](sycl::exception_list exceptions) {
+        for (const std::exception_ptr& e : exceptions) {
+          try {
+            std::rethrow_exception(e);
+          } catch (const sycl::exception& ex) {
+            std::cerr << "asynchronous SYCL exception: " << ex.what() << "\n";
+          }
+        }
+      },
+      sycl::property::queue::in_order{}};
   std::cout << "Device: "
             << q.get_device().get_info<sycl::info::device::name>() << "\n";
 
@@ -33,5 +52,5 @@ int main() {
   bool ok = (peak == (size_t)K0) || (peak == N - (size_t)K0);
   std::cout << (ok ? "OK\n" : "FAIL\n");
 
-  return 0;
+  return ok ? 0 : 1;
 }

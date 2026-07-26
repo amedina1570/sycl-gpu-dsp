@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
-# Pulse-train analysis for RADAR-like (pulsed) signals: reads a segment of a
-# raw SigMF IQ file, detects pulses on the amplitude envelope, and extracts
-# pulse width / PRI / PRF / duty cycle. Reuses view_iq_snapshot's loader and
-# FFT computation for the spectral/I-Q panels.
+# Pulse-train analysis for RADAR-like (pulsed) signals. Two modes:
+#
+#   view_radar_pulses.py capture.sigmf-data --duration 5e-3
+#       All-NumPy: reads a segment straight from a raw SigMF IQ file,
+#       computes the envelope, detects pulses, and plots -- no GPU/build
+#       needed, exactly as this script has always worked.
+#
+#   view_radar_pulses.py capture_radar.json
+#       Precomputed: reads the JSON + envelope .bin sidecar written by
+#       build/radar_pulses (the GPU-accelerated port of the same detection
+#       logic below), and just plots -- lets a much longer segment be
+#       processed on GPU instead of in NumPy. Only a small I/Q slice is
+#       re-read from the original file, for the FFT/I-Q panels.
+#
+# Reuses view_iq_snapshot's loader and FFT computation for the spectral/I-Q
+# panels in both modes.
 import argparse
 import json
 import sys
@@ -28,7 +40,7 @@ def format_duration(seconds):
     return f'{seconds:.4f} s'
 
 
-def detect_pulses(envelope, fs, threshold_frac, min_pulse_samples):
+def detect_pulses(envelope, threshold_frac, min_pulse_samples):
     """Threshold the envelope at floor + threshold_frac*(peak-floor) and pair
     rising/falling edges into complete pulses. Returns (rising_idx, falling_idx, threshold)."""
     floor = np.percentile(envelope, 10)
@@ -74,9 +86,71 @@ def pulse_stats(rising, falling, fs):
     return stats
 
 
+def run_precomputed(json_path, out_arg):
+    """Precomputed mode: plot from a build/radar_pulses .json + envelope .bin
+    sidecar instead of recomputing detection. Only a small I/Q slice is
+    re-read from the original file, for the FFT/I-Q panels."""
+    with open(json_path) as fh:
+        meta = json.load(fh)
+
+    iq_path = Path(meta['iq_input'])
+    offset, nsamp = meta['offset'], meta['nsamp']
+    fs, fc, datatype = meta['fs'], meta['fc'], meta['datatype']
+    threshold = meta['threshold']
+    rising = np.array(meta['rising'], dtype=np.int64)
+    falling = np.array(meta['falling'], dtype=np.int64)
+    stats = {k: meta[k] for k in (
+        'n_pulses', 'pulse_width_mean_s', 'pulse_width_std_s',
+        'pri_mean_s', 'pri_std_s', 'prf_hz', 'duty_cycle')}
+
+    envelope = np.fromfile(meta['envelope_bin'], dtype=np.float32)
+    iq = load_iq_segment(iq_path, offset, nsamp, datatype)
+
+    out_path = Path(out_arg) if out_arg else json_path.with_suffix('.png')
+    title_name = f'{iq_path.name} (via {json_path.name})'
+    return iq, envelope, rising, falling, threshold, stats, fs, fc, offset, nsamp, out_path, title_name
+
+
+def run_from_raw(in_path, args):
+    """All-NumPy mode: read a segment straight from a raw SigMF IQ file,
+    detect pulses, and write the same .json a build/radar_pulses run would
+    (minus the envelope_bin/iq_input/rising/falling fields a downstream
+    --json rerun would need -- this path recomputes everything itself)."""
+    meta = load_sigmf_meta(in_path)
+    fs = args.fs or meta.get('fs') or 20e6
+    fc = args.fc if args.fc is not None else (meta.get('fc') or 0.0)
+    datatype = args.datatype or meta.get('datatype') or 'ci16_le'
+    out_path = Path(args.out) if args.out else Path(f'{in_path.stem}_radar.png')
+    json_path = out_path.with_suffix('.json')
+
+    nsamp = args.nsamp or int(round(args.duration * fs))
+    iq = load_iq_segment(in_path, args.offset, nsamp, datatype)
+    nsamp = iq.size
+
+    # --- Envelope: magnitude, lightly smoothed to stabilize thresholding ---
+    envelope = np.abs(iq)
+    if args.smooth_samples > 1:
+        kernel = np.ones(args.smooth_samples) / args.smooth_samples
+        envelope = np.convolve(envelope, kernel, mode='same')
+
+    rising, falling, threshold = detect_pulses(envelope, args.threshold_frac, args.min_pulse_samples)
+    stats = pulse_stats(rising, falling, fs)
+
+    with open(json_path, 'w') as jf:
+        json.dump({
+            'input': str(in_path), 'offset': args.offset, 'nsamp': nsamp,
+            'fs': fs, 'fc': fc, 'threshold_frac': args.threshold_frac,
+            **stats,
+        }, jf, indent=2)
+    print(f'wrote {json_path}')
+
+    return iq, envelope, rising, falling, threshold, stats, fs, fc, args.offset, nsamp, out_path, in_path.name
+
+
 def main():
     ap = argparse.ArgumentParser(description='Pulse-train analysis (width/PRI/PRF) for a RADAR-like SigMF IQ capture.')
-    ap.add_argument('input', help='SigMF IQ file (.sigmf-data or raw ci16_le/cf32_le)')
+    ap.add_argument('input', help='SigMF IQ file (.sigmf-data or raw ci16_le/cf32_le), '
+                                   'or a .json written by build/radar_pulses to plot precomputed results')
     ap.add_argument('--offset', type=int, default=0, help='starting sample (complex samples, default 0)')
     ap.add_argument('--duration', type=float, default=5e-3,
                      help='segment length in seconds, must span several pulses (default 5ms)')
@@ -95,25 +169,12 @@ def main():
     args = ap.parse_args()
 
     in_path = Path(args.input)
-    meta = load_sigmf_meta(in_path)
-    fs = args.fs or meta.get('fs') or 20e6
-    fc = args.fc if args.fc is not None else (meta.get('fc') or 0.0)
-    datatype = args.datatype or meta.get('datatype') or 'ci16_le'
-    out_path = Path(args.out) if args.out else Path(f'{in_path.stem}_radar.png')
-    json_path = out_path.with_suffix('.json')
-
-    nsamp = args.nsamp or int(round(args.duration * fs))
-    iq = load_iq_segment(in_path, args.offset, nsamp, datatype)
-    nsamp = iq.size
-
-    # --- Envelope: magnitude, lightly smoothed to stabilize thresholding ---
-    envelope = np.abs(iq)
-    if args.smooth_samples > 1:
-        kernel = np.ones(args.smooth_samples) / args.smooth_samples
-        envelope = np.convolve(envelope, kernel, mode='same')
-
-    rising, falling, threshold = detect_pulses(envelope, fs, args.threshold_frac, args.min_pulse_samples)
-    stats = pulse_stats(rising, falling, fs)
+    if in_path.suffix == '.json':
+        (iq, envelope, rising, falling, threshold, stats, fs, fc,
+         offset, nsamp, out_path, title_name) = run_precomputed(in_path, args.out)
+    else:
+        (iq, envelope, rising, falling, threshold, stats, fs, fc,
+         offset, nsamp, out_path, title_name) = run_from_raw(in_path, args)
 
     print(f"pulses detected: {stats['n_pulses']}")
     if stats['n_pulses']:
@@ -125,14 +186,6 @@ def main():
         print(f"  duty cycle: {stats['duty_cycle']*100:.2f}%")
     else:
         print('  fewer than 2 pulses in this segment -- cannot compute PRI; try a longer --duration')
-
-    with open(json_path, 'w') as jf:
-        json.dump({
-            'input': str(in_path), 'offset': args.offset, 'nsamp': nsamp,
-            'fs': fs, 'fc': fc, 'threshold_frac': args.threshold_frac,
-            **stats,
-        }, jf, indent=2)
-    print(f'wrote {json_path}')
 
     # --- Plot: FFT | envelope+pulses | I/Q | extracted-parameters text ---
     freqs, mag_db = compute_fft_db(iq, fs, fc)
@@ -177,7 +230,7 @@ def main():
                  va='top', ha='left', fontsize=11, family='monospace')
     ax_text.set_title('Extracted parameters')
 
-    fig.suptitle(f'{in_path.name}  (offset={args.offset}, nsamp={nsamp}, fs={fs:.0f}, fc={fc:.0f})')
+    fig.suptitle(f'{title_name}  (offset={offset}, nsamp={nsamp}, fs={fs:.0f}, fc={fc:.0f})')
     plt.tight_layout()
     plt.savefig(out_path, dpi=130)
     print(f'saved {out_path}')

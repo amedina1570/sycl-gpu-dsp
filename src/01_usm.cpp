@@ -1,3 +1,12 @@
+/**
+ * @file 01_usm.cpp
+ * @brief SYCL fundamentals: device USM allocation, an in-order queue with
+ * async exception logging, and explicit host<->device transfers.
+ *
+ * Adds two device float arrays element-wise on the GPU and verifies the
+ * result. See docs/TUTORIAL.md Part 1.1 for the concepts this introduces.
+ */
+#include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <vector>
 #include <iostream>
@@ -5,8 +14,20 @@
 int main() {
   constexpr size_t N = 1 << 20;              // ~1M elements
 
-  // in-order queue: kernels/copies run in submission order, no manual deps
-  sycl::queue q{sycl::property::queue::in_order{}};
+  // in-order queue: kernels/copies run in submission order, no manual deps.
+  // Async exceptions (e.g. a failed copy/kernel) are logged instead of being
+  // silently dropped -- q.wait() alone does not rethrow them.
+  sycl::queue q{
+      [](sycl::exception_list exceptions) {
+        for (const std::exception_ptr& e : exceptions) {
+          try {
+            std::rethrow_exception(e);
+          } catch (const sycl::exception& ex) {
+            std::cerr << "asynchronous SYCL exception: " << ex.what() << "\n";
+          }
+        }
+      },
+      sycl::property::queue::in_order{}};
   std::cout << "Device: "
             << q.get_device().get_info<sycl::info::device::name>() << "\n";
 
@@ -14,9 +35,9 @@ int main() {
   std::vector<float> h_a(N, 1.0f), h_b(N, 2.0f), h_c(N, 0.0f);
 
   // Device allocations (device USM — lives in GPU memory)
-  float* d_a = sycl::malloc_device<float>(N, q);
-  float* d_b = sycl::malloc_device<float>(N, q);
-  float* d_c = sycl::malloc_device<float>(N, q);
+  float* d_a = sycl_util::malloc_device_checked<float>(N, q, "d_a");
+  float* d_b = sycl_util::malloc_device_checked<float>(N, q, "d_b");
+  float* d_c = sycl_util::malloc_device_checked<float>(N, q, "d_c");
 
   // H2D copies
   q.memcpy(d_a, h_a.data(), N * sizeof(float));
@@ -39,5 +60,5 @@ int main() {
   sycl::free(d_a, q);
   sycl::free(d_b, q);
   sycl::free(d_c, q);
-  return 0;
+  return ok ? 0 : 1;
 }

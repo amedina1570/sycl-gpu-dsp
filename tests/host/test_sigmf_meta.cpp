@@ -22,6 +22,21 @@ TEST_CASE("json_number returns nullopt for a missing key") {
   CHECK_FALSE(sigmf::json_number(text, "core:frequency").has_value());
 }
 
+TEST_CASE("json_number returns nullopt (not 0.0) for a non-numeric value") {
+  // strtod returns 0.0 both for a genuine "0" and for "couldn't parse a
+  // number here" -- a malformed sidecar must not be silently read as zero.
+  std::string text = R"({"core:sample_rate": null, "core:frequency": "bogus"})";
+  CHECK_FALSE(sigmf::json_number(text, "core:sample_rate").has_value());
+  CHECK_FALSE(sigmf::json_number(text, "core:frequency").has_value());
+}
+
+TEST_CASE("json_number returns 0.0 for a genuinely zero value") {
+  std::string text = R"({"core:frequency": 0})";
+  auto v = sigmf::json_number(text, "core:frequency");
+  REQUIRE(v.has_value());
+  CHECK(*v == doctest::Approx(0.0));
+}
+
 TEST_CASE("json_string extracts a quoted value") {
   std::string text = R"({"core:datatype": "ci16_le", "core:sample_rate": 20e6})";
   auto v = sigmf::json_string(text, "core:datatype");

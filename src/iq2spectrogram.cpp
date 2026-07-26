@@ -1,34 +1,38 @@
-// iq2spectrogram: single entry point — feed it an IQ file, get a spectrogram PNG.
-//
-// Combines stageA (load/parse) + stageC (windowed batched cuFFT via SYCL/cuFFT
-// interop) + view_spec.py (rendering) into one command. Reads sample rate and
-// center frequency from a SigMF `.sigmf-meta` sidecar when present (falling
-// back to CLI flags / defaults), supports ci16_le and cf32_le IQ, and shells
-// out to the Python viewer to produce the final PNG.
+/**
+ * @file iq2spectrogram.cpp
+ * @brief Single entry point: feed it an IQ file, get a spectrogram PNG.
+ *
+ * Combines stageA (load/parse) + stageC (windowed batched cuFFT via
+ * SYCL/cuFFT interop) + view_spec.py (rendering) into one command. Reads
+ * sample rate and center frequency from a SigMF `.sigmf-meta` sidecar when
+ * present (falling back to CLI flags / defaults), supports `ci16_le` and
+ * `cf32_le` IQ, and streams arbitrarily large files in bounded chunks. See
+ * docs/TUTORIAL.md §2.4.
+ */
 #include "sigmf_meta.hpp"
 #include "cli_util.hpp"
 #include "sycl_dsp_math.hpp"
 #include "dsp_math.hpp"
+#include "cufft_interop.hpp"
+#include "sycl_util.hpp"
 #include <sycl/sycl.hpp>
 #include <cufft.h>
 #include <cuda_runtime.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
-#include <cmath>
+#include <iomanip>
 #include <string>
+#include <type_traits>
 #include <vector>
 #include <fstream>
-#include <sstream>
 #include <optional>
 #include <filesystem>
-#include <exception>
 
 namespace fs = std::filesystem;
-
-#define CUFFT_CHECK(x) do { cufftResult r=(x); \
-  if(r!=CUFFT_SUCCESS){printf("cuFFT error %d at line %d\n",r,__LINE__);return 1;} }while(0)
 
 namespace {
 
@@ -75,7 +79,7 @@ bool parse_args(int argc, char** argv, Args& a) {
   for (int i = 2; i < argc; ++i) {
     std::string s = argv[i];
     auto next = [&](const char* flag) -> std::string {
-      if (i + 1 >= argc) { printf("missing value for %s\n", flag); std::exit(1); }
+      if (i + 1 >= argc) { fprintf(stderr, "missing value for %s\n", flag); std::exit(1); }
       return argv[++i];
     };
     if (s == "-o" || s == "--out")   a.out_prefix = next(s.c_str());
@@ -89,21 +93,14 @@ bool parse_args(int argc, char** argv, Args& a) {
     else if (s == "--python")        a.python = next(s.c_str());
     else if (s == "--chunk-mb")      a.chunk_mb = std::stol(next(s.c_str()));
     else if (s == "-h" || s == "--help") { usage(argv[0]); std::exit(0); }
-    else { printf("unknown option: %s\n", s.c_str()); return false; }
+    else { fprintf(stderr, "unknown option: %s\n", s.c_str()); return false; }
   }
   return true;
 }
 
-} // namespace
-
-int main(int argc, char** argv) {
-  Args a;
-  if (!parse_args(argc, argv, a)) { usage(argv[0]); return 1; }
-
-  fs::path inpath(a.input);
-  if (!fs::exists(inpath)) { printf("cannot open %s\n", a.input.c_str()); return 1; }
-
-  // --- Resolve fs/fc/datatype from a SigMF .sigmf-meta sidecar, if present ---
+// Fill any fields the user left unset from a SigMF .sigmf-meta sidecar (if
+// present), then apply the hard defaults and derived values.
+void resolve_metadata(Args& a, const fs::path& inpath) {
   fs::path meta_path;
   {
     std::string s = inpath.string();
@@ -121,51 +118,90 @@ int main(int argc, char** argv) {
   if (a.datatype.empty()) a.datatype = "ci16_le";
   a.hop = cli::resolve_hop(a.nfft, a.hop);
   if (a.out_prefix.empty()) a.out_prefix = inpath.stem().string();
+}
 
+bool validate_args(const Args& a) {
   if (!cli::is_power_of_two(a.nfft)) {
-    printf("--nfft must be a positive power of two\n");
-    return 1;
+    fprintf(stderr, "--nfft must be a positive power of two\n");
+    return false;
   }
   if (a.hop <= 0) {
-    printf("--hop must be positive\n");
-    return 1;
+    fprintf(stderr, "--hop must be positive\n");
+    return false;
   }
   if (!cli::is_supported_datatype(a.datatype)) {
-    printf("unsupported datatype '%s' (supported: ci16_le, cf32_le)\n", a.datatype.c_str());
-    return 1;
+    fprintf(stderr, "unsupported datatype '%s' (supported: ci16_le, cf32_le)\n",
+            a.datatype.c_str());
+    return false;
   }
   if (a.chunk_mb <= 0) {
-    printf("--chunk-mb must be positive\n");
-    return 1;
+    fprintf(stderr, "--chunk-mb must be positive\n");
+    return false;
   }
+  return true;
+}
+
+// Write the small .json sidecar describing the .bin (for the viewer).
+// max_digits10 precision so fs/fc round-trip exactly (the default 6
+// significant digits would corrupt e.g. fc = 1090.123e6).
+bool write_sidecar_json(const fs::path& json_path, const fs::path& bin_path,
+                        const Args& a, size_t nframes) {
+  std::ofstream jf(json_path);
+  jf << std::setprecision(17)
+     << "{\n"
+     << "  \"bin\": \""   << fs::absolute(bin_path).string() << "\",\n"
+     << "  \"nfft\": "    << a.nfft << ",\n"
+     << "  \"hop\": "     << a.hop << ",\n"
+     << "  \"fs\": "      << a.fs << ",\n"
+     << "  \"fc\": "      << a.fc << ",\n"
+     << "  \"nframes\": " << nframes << "\n"
+     << "}\n";
+  return jf.good();
+}
+
+// Run `python viewer json png` directly (fork/exec, no shell), so paths with
+// spaces or shell metacharacters can never break or inject into a command
+// line. Returns the viewer's exit code, or -1 if it could not be run.
+int run_viewer(const std::string& python, const fs::path& viewer,
+               const fs::path& json_path, const fs::path& png_path) {
+  pid_t pid = fork();
+  if (pid < 0) { perror("fork"); return -1; }
+  if (pid == 0) {
+    execlp(python.c_str(), python.c_str(), viewer.c_str(),
+           json_path.c_str(), png_path.c_str(), (char*)nullptr);
+    fprintf(stderr, "cannot exec %s\n", python.c_str());
+    _exit(127);
+  }
+  int status = 0;
+  if (waitpid(pid, &status, 0) < 0) { perror("waitpid"); return -1; }
+  return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+  Args a;
+  if (!parse_args(argc, argv, a)) { usage(argv[0]); return 1; }
+
+  fs::path inpath(a.input);
+  if (!fs::exists(inpath)) { fprintf(stderr, "cannot open %s\n", a.input.c_str()); return 1; }
+
+  resolve_metadata(a, inpath);
+  if (!validate_args(a)) return 1;
 
   const int NFFT = a.nfft, HOP = a.hop;
 
-  sycl::queue q{
-    [](sycl::exception_list exceptions) {
-      for (const std::exception_ptr& e : exceptions) {
-        try {
-          std::rethrow_exception(e);
-        } catch (const sycl::exception& ex) {
-          std::printf("asynchronous SYCL exception: %s\n", ex.what());
-        }
-      }
-    },
-    sycl::property::queue::in_order{}};
-  printf("Device: %s\n", q.get_device().get_info<sycl::info::device::name>().c_str());
-  if (q.get_device().get_backend() != sycl::backend::cuda) {
-    printf("cuFFT interop requires a SYCL queue backed by the CUDA backend\n");
-    return 1;
-  }
+  sycl::queue q = cufft_util::make_inorder_queue();
+  if (!cufft_util::require_cuda_backend(q)) return 1;
 
   // --- Size the job from the file length alone (no full-file read yet) ---
   std::ifstream f(a.input, std::ios::binary | std::ios::ate);
-  if (!f) { printf("cannot open %s\n", a.input.c_str()); return 1; }
+  if (!f) { fprintf(stderr, "cannot open %s\n", a.input.c_str()); return 1; }
   std::streamsize bytes = f.tellg();
   const size_t bytes_per_sample = cli::bytes_per_complex_sample(a.datatype);
 
   size_t nsamp = bytes / bytes_per_sample;
-  if (nsamp < (size_t)NFFT) { printf("file too short for NFFT=%d\n", NFFT); return 1; }
+  if (nsamp < (size_t)NFFT) { fprintf(stderr, "file too short for NFFT=%d\n", NFFT); return 1; }
   size_t nframes = (nsamp - NFFT) / HOP + 1;
 
   // --- Chunk sizing: stream `chunk_frames` frames at a time so the batch
@@ -182,17 +218,18 @@ int main(int argc, char** argv) {
 
   // --- Device + host buffers, sized for the largest chunk and reused
   // across chunks (the final chunk just uses a prefix of them). ---
-  cufftComplex* d_batch = sycl::malloc_device<cufftComplex>(chunk_frames*(size_t)NFFT, q);
-  float*        d_spec  = sycl::malloc_device<float>(chunk_frames*(size_t)NFFT, q);
+  cufftComplex* d_batch = sycl_util::malloc_device_checked<cufftComplex>(chunk_frames*(size_t)NFFT, q, "d_batch");
+  float*        d_spec  = sycl_util::malloc_device_checked<float>(chunk_frames*(size_t)NFFT, q, "d_spec");
   int16_t* d_raw_i16 = nullptr; float* d_raw_f32 = nullptr;
   std::vector<int16_t> raw_i16;
   std::vector<float>   raw_f32;
-  if (a.datatype == "ci16_le") {
+  const bool is_ci16 = (a.datatype == "ci16_le");
+  if (is_ci16) {
     raw_i16.resize(max_samples_per_chunk * 2);
-    d_raw_i16 = sycl::malloc_device<int16_t>(max_samples_per_chunk*2, q);
+    d_raw_i16 = sycl_util::malloc_device_checked<int16_t>(max_samples_per_chunk*2, q, "d_raw_i16");
   } else {
     raw_f32.resize(max_samples_per_chunk * 2);
-    d_raw_f32 = sycl::malloc_device<float>(max_samples_per_chunk*2, q);
+    d_raw_f32 = sycl_util::malloc_device_checked<float>(max_samples_per_chunk*2, q, "d_raw_f32");
   }
   std::vector<float> spec_chunk(chunk_frames * (size_t)NFFT);
 
@@ -200,6 +237,38 @@ int main(int argc, char** argv) {
   fs::path json_path = a.out_prefix + "_spectrogram.json";
   fs::path png_path  = a.out_prefix + "_spectrogram.png";
   std::ofstream bin_out(bin_path, std::ios::binary);
+  if (!bin_out) { fprintf(stderr, "cannot write %s\n", bin_path.string().c_str()); return 1; }
+
+  // One implementation of "read chunk from disk -> upload -> fused framing +
+  // decode + Hann window", instantiated for both raw sample types; the only
+  // per-type difference is dsp::decode_sample's overload.
+  auto stage_chunk = [&](auto& host_raw, auto* d_raw,
+                         size_t samples_here, size_t frames_here) -> bool {
+    using Raw = std::remove_pointer_t<decltype(d_raw)>;
+    const size_t want_bytes = samples_here * 2 * sizeof(Raw);
+    f.read(reinterpret_cast<char*>(host_raw.data()), want_bytes);
+    if (!f || (size_t)f.gcount() != (size_t)want_bytes) {
+      fprintf(stderr, "short read from %s (wanted %zu bytes, got %zd)\n",
+              a.input.c_str(), want_bytes, (ssize_t)f.gcount());
+      return false;
+    }
+    q.memcpy(d_raw, host_raw.data(), want_bytes).wait();
+    q.parallel_for(sycl::range<2>{frames_here, (size_t)NFFT}, [=](sycl::id<2> id){
+      size_t fr = id[0], n = id[1];
+      size_t s  = fr*HOP + n;
+      float w = dsp::hann_coeff(n, NFFT);
+      cufftComplex cc;
+      cc.x = dsp::decode_sample(d_raw[2*s])   * w;
+      cc.y = dsp::decode_sample(d_raw[2*s+1]) * w;
+      d_batch[fr*NFFT + n] = cc;
+    }).wait();
+    return true;
+  };
+
+  // cuFFT plan, reused across chunks: every chunk has `chunk_frames` frames
+  // except possibly the last, so at most two plans are ever created.
+  cufftHandle plan;
+  int planned_batch = 0;
 
   for (size_t c = 0; c < nchunks; ++c) {
     size_t f0 = c * chunk_frames;
@@ -210,49 +279,20 @@ int main(int argc, char** argv) {
     // small overlap from disk (via an absolute seek) is simpler than
     // carrying it over by hand and, for realistic chunk sizes, negligible
     // I/O overhead.
-    f.seekg((std::streamoff)(f0 * (size_t)HOP) * bytes_per_sample);
+    f.seekg((std::streamoff)cli::chunk_start_sample(f0, HOP) * bytes_per_sample);
 
-    if (a.datatype == "ci16_le") {
-      f.read(reinterpret_cast<char*>(raw_i16.data()), samples_here*2*sizeof(int16_t));
-      q.memcpy(d_raw_i16, raw_i16.data(), samples_here*2*sizeof(int16_t)).wait();
-      q.parallel_for(sycl::range<2>{frames_here, (size_t)NFFT}, [=](sycl::id<2> id){
-        size_t fr = id[0], n = id[1];
-        size_t s  = fr*HOP + n;
-        float w = dsp::hann_coeff(n, NFFT);
-        float i = dsp::decode_i16(d_raw_i16[2*s]);
-        float qd= dsp::decode_i16(d_raw_i16[2*s+1]);
-        cufftComplex cc; cc.x = i*w; cc.y = qd*w;
-        d_batch[fr*NFFT + n] = cc;
-      }).wait();
-    } else {
-      f.read(reinterpret_cast<char*>(raw_f32.data()), samples_here*2*sizeof(float));
-      q.memcpy(d_raw_f32, raw_f32.data(), samples_here*2*sizeof(float)).wait();
-      q.parallel_for(sycl::range<2>{frames_here, (size_t)NFFT}, [=](sycl::id<2> id){
-        size_t fr = id[0], n = id[1];
-        size_t s  = fr*HOP + n;
-        float w = dsp::hann_coeff(n, NFFT);
-        cufftComplex cc; cc.x = d_raw_f32[2*s]*w; cc.y = d_raw_f32[2*s+1]*w;
-        d_batch[fr*NFFT + n] = cc;
-      }).wait();
-    }
+    bool ok = is_ci16 ? stage_chunk(raw_i16, d_raw_i16, samples_here, frames_here)
+                      : stage_chunk(raw_f32, d_raw_f32, samples_here, frames_here);
+    if (!ok) return 1;
 
     // --- Batched cuFFT via interop ---
-    cufftHandle plan;
-    CUFFT_CHECK(cufftPlan1d(&plan, NFFT, CUFFT_C2C, (int)frames_here));
-    q.submit([&](sycl::handler& cgh){
-      cgh.AdaptiveCpp_enqueue_custom_operation([=](sycl::interop_handle& ih){
-        auto stream = ih.get_native_queue<sycl::backend::cuda>();
-        cufftResult r = cufftSetStream(plan, stream);
-        if (r != CUFFT_SUCCESS) {
-          printf("cuFFT error %d in cufftSetStream\n", r);
-          return;
-        }
-        r = cufftExecC2C(plan, d_batch, d_batch, CUFFT_FORWARD);
-        if (r != CUFFT_SUCCESS) {
-          printf("cuFFT error %d in cufftExecC2C\n", r);
-        }
-      });
-    });
+    if ((int)frames_here != planned_batch) {
+      if (planned_batch != 0) cufftDestroy(plan);
+      CUFFT_CHECK(cufftPlan1d(&plan, NFFT, CUFFT_C2C, (int)frames_here));
+      planned_batch = (int)frames_here;
+    }
+    cufftResult fft_status = CUFFT_SUCCESS;
+    cufft_util::enqueue_exec_c2c_forward(q, plan, d_batch, &fft_status);
 
     // --- Magnitude (dB) + fftshift, 2D range ---
     q.parallel_for(sycl::range<2>{frames_here, (size_t)NFFT}, [=](sycl::id<2> id){
@@ -264,29 +304,27 @@ int main(int argc, char** argv) {
       d_spec[fr*NFFT + ks] = db;
     });
     q.wait();
-    cufftDestroy(plan);
+    if (fft_status != CUFFT_SUCCESS) {
+      fprintf(stderr, "cuFFT error %d executing chunk %zu\n", fft_status, c+1);
+      return 1;
+    }
 
     q.memcpy(spec_chunk.data(), d_spec, frames_here*(size_t)NFFT*sizeof(float)).wait();
     bin_out.write(reinterpret_cast<char*>(spec_chunk.data()), frames_here*(size_t)NFFT*sizeof(float));
     printf("chunk %zu/%zu: frames %zu..%zu\n", c+1, nchunks, f0, f0+frames_here);
   }
   bin_out.close();
+  if (!bin_out) { fprintf(stderr, "write to %s failed\n", bin_path.string().c_str()); return 1; }
 
+  if (planned_batch != 0) cufftDestroy(plan);
   sycl::free(d_batch, q); sycl::free(d_spec, q);
   if (d_raw_i16) sycl::free(d_raw_i16, q);
   if (d_raw_f32) sycl::free(d_raw_f32, q);
 
-  // --- Write a small .json sidecar describing the .bin (for the viewer) ---
-  std::ofstream jf(json_path);
-  jf << "{\n"
-     << "  \"bin\": \""   << fs::absolute(bin_path).string() << "\",\n"
-     << "  \"nfft\": "    << NFFT << ",\n"
-     << "  \"hop\": "     << HOP << ",\n"
-     << "  \"fs\": "      << a.fs << ",\n"
-     << "  \"fc\": "      << a.fc << ",\n"
-     << "  \"nframes\": " << nframes << "\n"
-     << "}\n";
-  jf.close();
+  if (!write_sidecar_json(json_path, bin_path, a, nframes)) {
+    fprintf(stderr, "cannot write %s\n", json_path.string().c_str());
+    return 1;
+  }
   printf("wrote %s and %s\n", bin_path.string().c_str(), json_path.string().c_str());
 
   if (!a.plot) return 0;
@@ -298,15 +336,17 @@ int main(int argc, char** argv) {
     viewer = exe.parent_path().parent_path() / "view" / "view_spec.py"; // <repo>/build/.. -> <repo>/view
   }
   if (!fs::exists(viewer)) {
-    printf("viewer script not found at %s (pass --viewer PATH); .bin/.json written, skipping plot\n",
-           viewer.string().c_str());
+    fprintf(stderr, "viewer script not found at %s (pass --viewer PATH); .bin/.json written, skipping plot\n",
+            viewer.string().c_str());
     return 0;
   }
 
-  std::string cmd = a.python + " \"" + viewer.string() + "\" \"" + json_path.string() +
-                     "\" \"" + png_path.string() + "\"";
-  int rc = std::system(cmd.c_str());
-  if (rc != 0) { printf("plotting failed (exit %d): %s\n", rc, cmd.c_str()); return 1; }
+  int rc = run_viewer(a.python, viewer, json_path, png_path);
+  if (rc != 0) {
+    fprintf(stderr, "plotting failed (exit %d): %s %s %s %s\n", rc, a.python.c_str(),
+            viewer.string().c_str(), json_path.string().c_str(), png_path.string().c_str());
+    return 1;
+  }
   printf("spectrogram image: %s\n", fs::absolute(png_path).string().c_str());
   return 0;
 }
