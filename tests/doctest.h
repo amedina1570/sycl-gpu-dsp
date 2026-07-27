@@ -3665,11 +3665,26 @@ String& String::operator+=(const String& other) {
     const size_type total_size  = my_old_size + other_size;
     if(isOnStack()) {
         if(total_size < len) {
-            // append to the current stack space
-            memcpy(buf + my_old_size, other.c_str(), other_size + 1);
+            // append to the current stack space -- memmove, not memcpy:
+            // self-append (`s += s`) aliases `other.c_str()` with `buf`
+            // itself, and the source/destination ranges overlap by one
+            // byte (the null terminator), which memcpy doesn't allow.
+            memmove(buf + my_old_size, other.c_str(), other_size + 1);
             // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
             setLast(last - total_size);
         } else {
+            // cache append source in case of self-append / aliasing:
+            // setOnHeap() below flips isOnStack(), so if `other` aliases
+            // `*this`, other.c_str() would otherwise start reading from
+            // `temp` (via data.ptr) before it's fully populated, instead
+            // of the original stack content.
+            const char* append_src = other.c_str();
+            char*       alias_copy = nullptr;
+            if(append_src == buf) {
+                alias_copy = new char[other_size + 1];
+                memcpy(alias_copy, append_src, other_size + 1);
+                append_src = alias_copy;
+            }
             // alloc new chunk
             char* temp = new char[total_size + 1];
             // copy current data to new location before writing in the union
@@ -3680,13 +3695,16 @@ String& String::operator+=(const String& other) {
             data.capacity = data.size + 1;
             data.ptr      = temp;
             // transfer the rest of the data
-            memcpy(data.ptr + my_old_size, other.c_str(), other_size + 1);
+            memcpy(data.ptr + my_old_size, append_src, other_size + 1);
+            delete[] alias_copy;
         }
     } else {
         if(data.capacity > total_size) {
-            // append to the current heap block
+            // append to the current heap block -- memmove, not memcpy:
+            // same self-append aliasing/overlap as the stack case above,
+            // just with data.ptr instead of buf.
             data.size = total_size;
-            memcpy(data.ptr + my_old_size, other.c_str(), other_size + 1);
+            memmove(data.ptr + my_old_size, other.c_str(), other_size + 1);
         } else {
             // resize
             data.capacity *= 2;
