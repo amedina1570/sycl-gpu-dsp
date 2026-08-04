@@ -7,7 +7,12 @@
  */
 #pragma once
 #include "dsp_constants.hpp"
+#include <cerrno>
+#include <cmath>
 #include <cstddef>
+#include <cstdlib>
+#include <limits>
+#include <optional>
 #include <string>
 
 /// @namespace cli
@@ -40,6 +45,55 @@ inline int resolve_hop(int nfft, int hop) {
 /// @return True if `datatype` is `"ci16_le"` or `"cf32_le"`.
 inline bool is_supported_datatype(const std::string& datatype) {
   return datatype == "ci16_le" || datatype == "cf32_le";
+}
+
+/// Parse a complete floating-point CLI value.
+/// @param text Candidate value.
+/// @return Parsed value, or std::nullopt if the whole string is not one
+/// finite number.
+inline std::optional<double> parse_double(const std::string& text) {
+  if (text.empty()) return std::nullopt;
+  errno = 0;
+  char* end = nullptr;
+  double value = std::strtod(text.c_str(), &end);
+  if (end == text.c_str() || *end != '\0' || errno == ERANGE || !std::isfinite(value))
+    return std::nullopt;
+  return value;
+}
+
+/// Parse a complete single-precision floating-point CLI value.
+/// @param text Candidate value.
+/// @return Parsed value, or std::nullopt if invalid/out of range.
+inline std::optional<float> parse_float(const std::string& text) {
+  auto value = parse_double(text);
+  if (!value || *value < -std::numeric_limits<float>::max() ||
+      *value > std::numeric_limits<float>::max())
+    return std::nullopt;
+  return (float)*value;
+}
+
+/// Parse a complete long integer CLI value.
+/// @param text Candidate value.
+/// @return Parsed value, or std::nullopt if invalid/out of range.
+inline std::optional<long> parse_long(const std::string& text) {
+  if (text.empty()) return std::nullopt;
+  errno = 0;
+  char* end = nullptr;
+  long value = std::strtol(text.c_str(), &end, 10);
+  if (end == text.c_str() || *end != '\0' || errno == ERANGE)
+    return std::nullopt;
+  return value;
+}
+
+/// Parse a complete int CLI value.
+/// @param text Candidate value.
+/// @return Parsed value, or std::nullopt if invalid/out of range.
+inline std::optional<int> parse_int(const std::string& text) {
+  auto value = parse_long(text);
+  if (!value || *value < std::numeric_limits<int>::min() ||
+      *value > std::numeric_limits<int>::max())
+    return std::nullopt;
+  return (int)*value;
 }
 
 /// Bytes per complex IQ sample on disk for a supported SigMF datatype.

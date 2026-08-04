@@ -38,6 +38,39 @@ TEST_CASE("is_supported_datatype rejects anything else") {
   CHECK_FALSE(cli::is_supported_datatype("CI16_LE"));
 }
 
+TEST_CASE("parse_int accepts only complete in-range integers") {
+  auto v = cli::parse_int("8192");
+  REQUIRE(v.has_value());
+  CHECK(*v == 8192);
+  CHECK_FALSE(cli::parse_int("8192x").has_value());
+  CHECK_FALSE(cli::parse_int("999999999999999999999").has_value());
+  CHECK_FALSE(cli::parse_int("3.14").has_value());
+}
+
+TEST_CASE("parse_long accepts signed complete integers") {
+  auto v = cli::parse_long("-42");
+  REQUIRE(v.has_value());
+  CHECK(*v == -42);
+  CHECK_FALSE(cli::parse_long("").has_value());
+  CHECK_FALSE(cli::parse_long("12 samples").has_value());
+}
+
+TEST_CASE("parse_double rejects malformed and non-finite values") {
+  auto v = cli::parse_double("20e6");
+  REQUIRE(v.has_value());
+  CHECK(*v == doctest::Approx(20e6));
+  CHECK_FALSE(cli::parse_double("20e6Hz").has_value());
+  CHECK_FALSE(cli::parse_double("nan").has_value());
+  CHECK_FALSE(cli::parse_double("inf").has_value());
+}
+
+TEST_CASE("parse_float rejects out-of-range values") {
+  auto v = cli::parse_float("0.5");
+  REQUIRE(v.has_value());
+  CHECK(*v == doctest::Approx(0.5f));
+  CHECK_FALSE(cli::parse_float("1e100").has_value());
+}
+
 TEST_CASE("resolve_chunk_frames fits the requested memory budget") {
   // bytes/frame = 8192 * 12 = 98304; 256 MB budget -> floor(268435456/98304)
   CHECK(cli::resolve_chunk_frames(256, 8192, 10'000'000) == 2730);

@@ -44,6 +44,11 @@ TEST_CASE("json_string extracts a quoted value") {
   CHECK(*v == "ci16_le");
 }
 
+TEST_CASE("json_escape protects JSON string syntax") {
+  CHECK(sigmf::json_escape(R"(run "A"\capture)") == R"(run \"A\"\\capture)");
+  CHECK(sigmf::json_escape("line\nnext\tcol") == R"(line\nnext\tcol)");
+}
+
 TEST_CASE("json_string returns nullopt for a missing key") {
   std::string text = R"({"core:sample_rate": 20e6})";
   CHECK_FALSE(sigmf::json_string(text, "core:datatype").has_value());

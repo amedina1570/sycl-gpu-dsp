@@ -81,15 +81,47 @@ bool parse_args(int argc, char** argv, Args& a) {
       return argv[++i];
     };
     if (s == "-o" || s == "--out")              a.out_prefix = next(s.c_str());
-    else if (s == "--offset")                   a.offset = std::stol(next(s.c_str()));
-    else if (s == "--duration")                 a.duration = std::stod(next(s.c_str()));
-    else if (s == "--nsamp")                    a.nsamp = std::stol(next(s.c_str()));
-    else if (s == "--fs")                       a.fs = std::stod(next(s.c_str()));
-    else if (s == "--fc")                       a.fc = std::stod(next(s.c_str()));
+    else if (s == "--offset") {
+      auto v = cli::parse_long(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --offset\n"); return false; }
+      a.offset = *v;
+    }
+    else if (s == "--duration") {
+      auto v = cli::parse_double(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --duration\n"); return false; }
+      a.duration = *v;
+    }
+    else if (s == "--nsamp") {
+      auto v = cli::parse_long(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --nsamp\n"); return false; }
+      a.nsamp = *v;
+    }
+    else if (s == "--fs") {
+      auto v = cli::parse_double(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --fs\n"); return false; }
+      a.fs = *v;
+    }
+    else if (s == "--fc") {
+      auto v = cli::parse_double(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --fc\n"); return false; }
+      a.fc = *v;
+    }
     else if (s == "--datatype")                 a.datatype = next(s.c_str());
-    else if (s == "--threshold-frac")           a.threshold_frac = std::stof(next(s.c_str()));
-    else if (s == "--smooth-samples")           a.smooth_samples = std::stoi(next(s.c_str()));
-    else if (s == "--min-pulse-samples")        a.min_pulse_samples = std::stol(next(s.c_str()));
+    else if (s == "--threshold-frac") {
+      auto v = cli::parse_float(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --threshold-frac\n"); return false; }
+      a.threshold_frac = *v;
+    }
+    else if (s == "--smooth-samples") {
+      auto v = cli::parse_int(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --smooth-samples\n"); return false; }
+      a.smooth_samples = *v;
+    }
+    else if (s == "--min-pulse-samples") {
+      auto v = cli::parse_long(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --min-pulse-samples\n"); return false; }
+      a.min_pulse_samples = *v;
+    }
     else if (s == "-h" || s == "--help")        { usage(argv[0]); std::exit(0); }
     else { fprintf(stderr, "unknown option: %s\n", s.c_str()); return false; }
   }
@@ -124,6 +156,7 @@ bool validate_args(const Args& a) {
     fprintf(stderr, "unsupported datatype '%s' (supported: ci16_le, cf32_le)\n", a.datatype.c_str());
     return false;
   }
+  if (a.fs <= 0.0) { fprintf(stderr, "--fs must be positive\n"); return false; }
   if (a.offset < 0) { fprintf(stderr, "--offset must be non-negative\n"); return false; }
   if (a.nsamp <= 0) { fprintf(stderr, "segment length must be positive (check --duration/--nsamp)\n"); return false; }
   if (a.threshold_frac <= 0.0f || a.threshold_frac >= 1.0f) {
@@ -243,13 +276,13 @@ int main(int argc, char** argv) {
   // None) are written as JSON null rather than a misleading 0.
   std::ofstream jf(json_path);
   jf << std::setprecision(17) << "{\n";
-  jf << "  \"iq_input\": \""     << fs::absolute(inpath).string()   << "\",\n";
-  jf << "  \"envelope_bin\": \"" << fs::absolute(bin_path).string() << "\",\n";
+  jf << "  \"iq_input\": \""     << sigmf::json_escape(fs::absolute(inpath).string())   << "\",\n";
+  jf << "  \"envelope_bin\": \"" << sigmf::json_escape(fs::absolute(bin_path).string()) << "\",\n";
   jf << "  \"offset\": "  << a.offset << ",\n";
   jf << "  \"nsamp\": "   << nsamp    << ",\n";
   jf << "  \"fs\": "      << a.fs     << ",\n";
   jf << "  \"fc\": "      << a.fc     << ",\n";
-  jf << "  \"datatype\": \"" << a.datatype << "\",\n";
+  jf << "  \"datatype\": \"" << sigmf::json_escape(a.datatype) << "\",\n";
   jf << "  \"threshold_frac\": " << a.threshold_frac << ",\n";
   jf << "  \"threshold\": "      << det.threshold    << ",\n";
   jf << "  \"smooth_samples\": "     << a.smooth_samples     << ",\n";
