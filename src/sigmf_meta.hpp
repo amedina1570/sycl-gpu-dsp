@@ -27,6 +27,35 @@ inline std::optional<std::string> read_file(const std::string& path) {
   return ss.str();
 }
 
+/// Escape a string so it is safe to place between JSON quotes.
+/// @param value Raw string value.
+/// @return JSON-escaped value, without the surrounding quote characters.
+inline std::string json_escape(const std::string& value) {
+  std::string out;
+  out.reserve(value.size());
+  for (unsigned char ch : value) {
+    switch (ch) {
+      case '"':  out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\b': out += "\\b";  break;
+      case '\f': out += "\\f";  break;
+      case '\n': out += "\\n";  break;
+      case '\r': out += "\\r";  break;
+      case '\t': out += "\\t";  break;
+      default:
+        if (ch < 0x20) {
+          const char hex[] = "0123456789abcdef";
+          out += "\\u00";
+          out += hex[ch >> 4];
+          out += hex[ch & 0x0f];
+        } else {
+          out += (char)ch;
+        }
+    }
+  }
+  return out;
+}
+
 /// Scrape a numeric field out of a SigMF JSON text, e.g. `"core:sample_rate"`.
 ///
 /// SigMF keys like `"core:datatype"` contain a colon themselves, so the

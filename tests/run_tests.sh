@@ -24,7 +24,11 @@ fail=0
 run_bin() {
   local name="$1" bin="$2"
   echo "== $name =="
-  if "$bin"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  if "$bin" 2> >(sed '/ocl_hardware_manager: Could not obtain platform list/d' >&2); then
+    pass=$((pass+1))
+  else
+    fail=$((fail+1))
+  fi
   echo
 }
 

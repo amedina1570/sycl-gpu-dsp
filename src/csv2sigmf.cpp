@@ -67,8 +67,16 @@ bool parse_args(int argc, char** argv, Args& a) {
       return argv[++i];
     };
     if (s == "-o" || s == "--out")       a.out_prefix = next(s.c_str());
-    else if (s == "--fs")                a.fs = std::stod(next(s.c_str()));
-    else if (s == "--fc")                a.fc = std::stod(next(s.c_str()));
+    else if (s == "--fs") {
+      auto v = cli::parse_double(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --fs\n"); return false; }
+      a.fs = *v;
+    }
+    else if (s == "--fc") {
+      auto v = cli::parse_double(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --fc\n"); return false; }
+      a.fc = *v;
+    }
     else if (s == "--datatype")          a.datatype = next(s.c_str());
     else if (s == "-h" || s == "--help") { usage(argv[0]); std::exit(0); }
     else { fprintf(stderr, "unknown option: %s\n", s.c_str()); return false; }

@@ -83,15 +83,35 @@ bool parse_args(int argc, char** argv, Args& a) {
       return argv[++i];
     };
     if (s == "-o" || s == "--out")   a.out_prefix = next(s.c_str());
-    else if (s == "--nfft")          a.nfft = std::stoi(next(s.c_str()));
-    else if (s == "--hop")           a.hop  = std::stoi(next(s.c_str()));
-    else if (s == "--fs")            a.fs   = std::stod(next(s.c_str()));
-    else if (s == "--fc")            a.fc   = std::stod(next(s.c_str()));
+    else if (s == "--nfft") {
+      auto v = cli::parse_int(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --nfft\n"); return false; }
+      a.nfft = *v;
+    }
+    else if (s == "--hop") {
+      auto v = cli::parse_int(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --hop\n"); return false; }
+      a.hop = *v;
+    }
+    else if (s == "--fs") {
+      auto v = cli::parse_double(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --fs\n"); return false; }
+      a.fs = *v;
+    }
+    else if (s == "--fc") {
+      auto v = cli::parse_double(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --fc\n"); return false; }
+      a.fc = *v;
+    }
     else if (s == "--datatype")      a.datatype = next(s.c_str());
     else if (s == "--no-plot")       a.plot = false;
     else if (s == "--viewer")        a.viewer = next(s.c_str());
     else if (s == "--python")        a.python = next(s.c_str());
-    else if (s == "--chunk-mb")      a.chunk_mb = std::stol(next(s.c_str()));
+    else if (s == "--chunk-mb") {
+      auto v = cli::parse_long(next(s.c_str()));
+      if (!v) { fprintf(stderr, "invalid value for --chunk-mb\n"); return false; }
+      a.chunk_mb = *v;
+    }
     else if (s == "-h" || s == "--help") { usage(argv[0]); std::exit(0); }
     else { fprintf(stderr, "unknown option: %s\n", s.c_str()); return false; }
   }
@@ -129,6 +149,10 @@ bool validate_args(const Args& a) {
     fprintf(stderr, "--hop must be positive\n");
     return false;
   }
+  if (a.fs <= 0.0) {
+    fprintf(stderr, "--fs must be positive\n");
+    return false;
+  }
   if (!cli::is_supported_datatype(a.datatype)) {
     fprintf(stderr, "unsupported datatype '%s' (supported: ci16_le, cf32_le)\n",
             a.datatype.c_str());
@@ -149,7 +173,7 @@ bool write_sidecar_json(const fs::path& json_path, const fs::path& bin_path,
   std::ofstream jf(json_path);
   jf << std::setprecision(17)
      << "{\n"
-     << "  \"bin\": \""   << fs::absolute(bin_path).string() << "\",\n"
+     << "  \"bin\": \""   << sigmf::json_escape(fs::absolute(bin_path).string()) << "\",\n"
      << "  \"nfft\": "    << a.nfft << ",\n"
      << "  \"hop\": "     << a.hop << ",\n"
      << "  \"fs\": "      << a.fs << ",\n"
