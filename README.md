@@ -60,6 +60,33 @@ slower. The viewer (`view/view_spec.py`) memory-maps the `.bin` and
 max-hold-decimates it down to the figure's pixel width instead of loading it
 whole, so plotting a huge spectrogram doesn't itself blow out RAM.
 
+For interactive inspection, run the no-server matplotlib viewer on the
+`.json` sidecar:
+
+    python3 view/view_spec_interactive.py recording_spectrogram.json
+
+It renders one bounded viewport at a time from the memory-mapped `.bin`, so
+zooming, panning, display filters, and two-point time/frequency measurements
+do not require loading the whole spectrogram into Python. Very large
+full-file views open as a fast sampled overview first; zoomed-in regions
+automatically switch back to max-hold decimation. Use the matplotlib
+toolbar or mouse wheel to navigate; the side panel selects frequency
+reduction, filters, and colormaps. The default `sample` reducer keeps the
+view closer to the static PNG by avoiding frequency max-hold saturation;
+`mean` smooths across frequency bins, and `peak` preserves narrow bursts at
+the cost of a hotter/noisier display. `[`/`]` and `{`/`}` tune the display
+percentile range, and `r` resets the view. `c`, `f`, and `g` also cycle
+colormaps, filters, and frequency reducers from the keyboard.
+
+For faster large-file overviews, build a small cache once:
+
+    python3 view/view_spec_interactive.py recording_spectrogram.json --build-overview
+
+The cache is saved next to the sidecar as
+`<stem>_overview_t1024_f8_sample.npz`; later runs load it automatically.
+Use `--overview-reduce peak` when you specifically want a peak-preserving
+cache for burst hunting.
+
 ### From a CSV capture
 
 Some test equipment exports I/Q as CSV instead of SigMF: a header row
